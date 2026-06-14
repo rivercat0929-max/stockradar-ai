@@ -1,0 +1,385 @@
+--- page 1 ---
+Codex 开发任务：AI 股票雷达 MVP
+你现在是全栈开发工程师，请根据下面的 PRD 开发一个可运行的 MVP Web 应用。
+一、开发目标
+开发一个名为「AI 股票雷达 / StockRadar AI」的股票分析 MVP。
+第一版目标不是做真实交易，也不是提供投资建议，而是实现：
+用户可以添加自选股；
+用户可以录入持仓；
+系统展示股票价格、评分、提醒和基础分析；
+系统生成每日 AI 投资简报；
+系统提供简单的历史信号回测展示；
+页面结构清晰，后续方便扩展真实 API。
+二、技术栈要求
+请使用：
+Frontend：Next.js + TypeScript + Tailwind CSS
+Backend：Next.js API Routes 或 Server Actions
+Database：PostgreSQL；如果暂时没有数据库，可先用 Prisma + SQLite 本地开发
+ORM：Prisma
+Chart：Recharts 或 Lightweight Charts
+UI：简洁、现代、金融工具风格
+部署目标：Vercel
+三、MVP 页面
+请先完成以下页面：
+1. Dashboard 首页
+展示：
+今日市场状态
+我的组合总览
+今日重要提醒
+今日机会
+持仓风险摘要
+2. 我的持仓页
+功能：
+添加股票持仓
+1. 
+2. 
+3. 
+4. 
+5. 
+6. 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+1
+
+--- page 2 ---
+编辑股票代码、股数、平均成本、目标仓位
+显示当前价格、盈亏、仓位占比
+标记风险状态
+3. 股票详情页
+展示：
+股票代码和公司名称
+综合评分
+基本面评分
+估值评分
+技术面评分
+催化因素评分
+风险评分
+当前结论
+买入区
+卖出 / 减仓区
+逻辑失效点
+历史相似信号胜率
+4. 选股雷达页
+展示一个股票列表表格：
+股票代码
+公司名称
+总分
+基本面
+估值
+技术面
+状态
+操作建议
+5. 事件日历页
+展示未来 7 天事件：
+财报
+分红
+CPI
+PPI
+FOMC
+GDP
+公司公告
+6. 回测实验室页
+展示：
+股票代码
+信号类型
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+2
+
+--- page 3 ---
+样本数量
+5 日胜率
+20 日胜率
+60 日胜率
+平均收益
+最大回撤
+信号等级
+四、数据要求
+第一版可以先使用 mock data，但代码结构必须方便未来接入真实 API。
+请建立以下数据模型：
+User
+id
+email
+name
+createdAt
+Watchlist
+id
+userId
+ticker
+companyName
+market
+status
+createdAt
+Holding
+id
+userId
+ticker
+shares
+averageCost
+currentPrice
+targetAllocation
+createdAt
+updatedAt
+StockScore
+id
+ticker
+totalScore
+fundamentalScore
+valuationScore
+technicalScore
+catalystScore
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+3
+
+--- page 4 ---
+macroScore
+riskScore
+scoreDate
+Alert
+id
+userId
+ticker
+alertType
+priority
+title
+content
+status
+createdAt
+BacktestResult
+id
+ticker
+signalType
+sampleSize
+winRate5d
+winRate20d
+winRate60d
+avgReturn20d
+maxDrawdown
+profitLossRatio
+signalGrade
+createdAt
+五、第一版 mock 股票
+请内置以下股票作为示例数据：
+TSLA
+AMZN
+NVDA
+CEG
+MSFT
+GOOGL
+META
+AAPL
+六、核心评分逻辑
+请先用规则模拟评分，不需要机器学习。
+综合评分公式：
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+4
+
+--- page 5 ---
+Total Score = Fundamental Score × 0.30
+Valuation Score × 0.20
+Technical Score × 0.20
+Catalyst Score × 0.15
+Macro Score × 0.10
+Risk Score × 0.05
+请在代码里把评分逻辑写成独立函数，方便未来替换成真实数据。
+七、提醒系统
+MVP 先不需要真实定时任务，可以先实现 alerts mock data 和页面展示。
+提醒类型包括：
+earnings
+dividend
+macro
+technical
+valuation
+risk
+filing
+提醒优先级包括：
+P0 紧急
+P1 重要
+P2 普通
+P3 观察
+八、AI 简报
+请先用 mock data 生成每日简报模块，结构包括：
+今日市场状态
+我的持仓风险
+今日机会
+今日风险
+未来 7 天事件
+未来再接入 OpenAI API。
+九、免责声明
+请在页面底部和股票详情页显示：
+本产品仅用于股票研究、数据分析和投资教育，不构成投资建议、财务建议或证券买卖推荐。所有评分、信
+号、回测和 AI 总结仅供参考。历史表现不代表未来收益。投资有风险，用户需自行判断并承担投资结果。
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+• 
+1. 
+2. 
+3. 
+4. 
+5. 
+5
+
+--- page 6 ---
+十、开发要求
+先创建完整项目结构；
+所有页面必须能正常打开；
+UI 要简洁，不要太花；
+表格要清晰；
+使用 TypeScript 类型定义；
+评分、提醒、回测逻辑要模块化；
+使用 mock data 时请集中放在 /lib/mock-data.ts；
+业务逻辑放在 /lib/scoring.ts、/lib/backtest.ts、/lib/alerts.ts；
+页面组件放在 /components；
+请提供 README，说明如何安装、运行和后续接入真实 API。
+十一、验收标准
+完成后我需要能：
+本地运行项目；
+打开 Dashboard；
+查看持仓；
+添加或编辑一条持仓；
+查看股票详情；
+查看选股雷达；
+查看事件日历；
+查看回测结果；
+看到每日 AI 简报；
+看到免责声明。
+请先实现 MVP，不要开发自动交易功能。
+1. 
+2. 
+3. 
+4. 
+5. 
+6. 
+7. 
+8. 
+9. 
+10. 
+1. 
+2. 
+3. 
+4. 
+5. 
+6. 
+7. 
+8. 
+9. 
+10. 
+6

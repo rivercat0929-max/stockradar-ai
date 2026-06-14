@@ -1,0 +1,20 @@
+{
+  "name": "StockRadar AI",
+  "short_name": "StockRadar",
+  "description": "AI 股票雷达响应式 Web MVP",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#eef2f7",
+  "theme_color": "#111827",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

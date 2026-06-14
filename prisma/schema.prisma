@@ -1,0 +1,81 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String      @id @default(cuid())
+  email     String      @unique
+  name      String
+  createdAt DateTime    @default(now())
+  watchlist Watchlist[]
+  alerts    Alert[]
+}
+
+model Watchlist {
+  id          String   @id @default(cuid())
+  userId      String
+  ticker      String
+  companyName String
+  market      String
+  status      String
+  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+}
+
+model Holding {
+  id               String   @id @default(cuid())
+  ticker           String
+  companyName      String?
+  shares           Float
+  averageCost      Float
+  targetAllocation Float?
+  notes            String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}
+
+model StockScore {
+  id               String   @id @default(cuid())
+  ticker           String
+  totalScore       Int
+  fundamentalScore Int
+  valuationScore   Int
+  technicalScore   Int
+  catalystScore    Int
+  macroScore       Int
+  riskScore        Int
+  scoreDate        DateTime
+}
+
+model Alert {
+  id        String   @id @default(cuid())
+  userId    String
+  ticker    String?
+  alertType String
+  priority  String
+  title     String
+  content   String
+  status    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id])
+}
+
+model BacktestResult {
+  id              String   @id @default(cuid())
+  ticker          String
+  signalType      String
+  sampleSize      Int
+  winRate5d       Float
+  winRate20d      Float
+  winRate60d      Float
+  avgReturn20d    Float
+  maxDrawdown     Float
+  profitLossRatio Float
+  signalGrade     String
+  createdAt       DateTime @default(now())
+}
