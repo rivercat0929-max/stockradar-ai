@@ -3,13 +3,12 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { parseHoldingInput } from "@/lib/holdings-validation";
 
-type RouteContext = {
-  params: {
-    id: string;
-  };
-};
+export const dynamic = "force-dynamic";
 
-export async function PUT(request: Request, { params }: RouteContext) {
+export async function PUT(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
   const result = parseHoldingInput(await request.json().catch(() => null));
 
   if (!result.data) {
@@ -32,7 +31,12 @@ export async function PUT(request: Request, { params }: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: RouteContext) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: { id: string } }
+) {
+  void request;
+
   try {
     await prisma.holding.delete({
       where: { id: params.id }
