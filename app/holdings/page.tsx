@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Disclaimer } from "@/components/disclaimer";
 import { HoldingForm, type HoldingFormValues } from "@/components/holding-form";
+import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
 import type { Holding } from "@/lib/types";
 
@@ -17,6 +18,7 @@ type SavePayload = {
 };
 
 export default function HoldingsPage() {
+  const { t } = useLanguage();
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [editing, setEditing] = useState<Holding | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -26,6 +28,7 @@ export default function HoldingsPage() {
 
   useEffect(() => {
     loadHoldings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const totalCost = useMemo(
@@ -40,10 +43,10 @@ export default function HoldingsPage() {
     try {
       const response = await fetch("/api/holdings", { cache: "no-store" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to load holdings.");
+      if (!response.ok) throw new Error(data.error ?? t("loadHoldingsError"));
       setHoldings(data);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Failed to load holdings.");
+      setError(loadError instanceof Error ? loadError.message : t("loadHoldingsError"));
     } finally {
       setIsLoading(false);
     }
@@ -61,7 +64,7 @@ export default function HoldingsPage() {
         body: JSON.stringify(payload)
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to save holding.");
+      if (!response.ok) throw new Error(data.error ?? t("saveHoldingError"));
 
       setHoldings((current) => {
         if (!editing) return [data, ...current];
@@ -69,14 +72,14 @@ export default function HoldingsPage() {
       });
       closeForm();
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : "Failed to save holding.");
+      setError(saveError instanceof Error ? saveError.message : t("saveHoldingError"));
     } finally {
       setIsSaving(false);
     }
   }
 
   async function deleteHolding(holding: Holding) {
-    const confirmed = window.confirm(`Delete ${holding.ticker} from holdings?`);
+    const confirmed = window.confirm(t("deleteConfirm", { ticker: holding.ticker }));
     if (!confirmed) return;
 
     setError(null);
@@ -87,11 +90,11 @@ export default function HoldingsPage() {
         body: JSON.stringify({ id: holding.id })
       });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Failed to delete holding.");
+      if (!response.ok) throw new Error(data.error ?? t("deleteHoldingError"));
       setHoldings((current) => current.filter((item) => item.id !== holding.id));
       if (editing?.id === holding.id) closeForm();
     } catch (deleteError) {
-      setError(deleteError instanceof Error ? deleteError.message : "Failed to delete holding.");
+      setError(deleteError instanceof Error ? deleteError.message : t("deleteHoldingError"));
     }
   }
 
@@ -115,21 +118,21 @@ export default function HoldingsPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Holdings"
-        eyebrow="Portfolio Database"
-        description="Manage real holdings stored in SQLite through Prisma. No broker connection and no native mobile app."
+        title={t("portfolio")}
+        eyebrow={t("portfolioDatabase")}
+        description={t("holdingsDescription")}
         action={
           <button onClick={openAddForm} className="rounded-md bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-400">
-            Add Holding
+            {t("addHolding")}
           </button>
         }
       />
 
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
         <div className="grid gap-4 sm:grid-cols-3">
-          <SummaryCard label="Holdings" value={holdings.length.toLocaleString()} />
-          <SummaryCard label="Total Cost Basis" value={`$${totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-          <SummaryCard label="Storage" value="SQLite" />
+          <SummaryCard label={t("holdingsCount")} value={holdings.length.toLocaleString()} />
+          <SummaryCard label={t("totalCostBasis")} value={`$${totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
+          <SummaryCard label={t("storage")} value="SQLite" />
         </div>
       </section>
 
@@ -141,15 +144,15 @@ export default function HoldingsPage() {
 
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">Holding List</h2>
-          {isLoading ? <span className="text-sm text-slate-400">Loading...</span> : null}
+          <h2 className="text-lg font-semibold">{t("holdingList")}</h2>
+          {isLoading ? <span className="text-sm text-slate-400">{t("loading")}</span> : null}
         </div>
 
         <div className="overflow-x-auto">
           <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
             <thead>
               <tr>
-                {["Ticker", "Company Name", "Shares", "Average Cost", "Target Allocation", "Notes", "Actions"].map((column) => (
+                {[t("ticker"), t("companyName"), t("shares"), t("averageCost"), t("targetAllocation"), t("notes"), t("actions")].map((column) => (
                   <th key={column} className="border-b border-slate-800 bg-slate-900 px-3 py-3 font-semibold text-slate-300 first:rounded-l-md last:rounded-r-md">
                     {column}
                   </th>
@@ -160,7 +163,7 @@ export default function HoldingsPage() {
               {!isLoading && holdings.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
-                    No holdings yet. Add your first position to start tracking.
+                    {t("noHoldings")}
                   </td>
                 </tr>
               ) : null}
@@ -175,10 +178,10 @@ export default function HoldingsPage() {
                   <td className="border-b border-slate-800 px-3 py-3">
                     <div className="flex gap-3">
                       <button onClick={() => openEditForm(holding)} className="font-semibold text-blue-300 hover:text-blue-200">
-                        Edit
+                        {t("edit")}
                       </button>
                       <button onClick={() => deleteHolding(holding)} className="font-semibold text-red-300 hover:text-red-200">
-                        Delete
+                        {t("delete")}
                       </button>
                     </div>
                   </td>

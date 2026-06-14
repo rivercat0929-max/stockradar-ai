@@ -1,17 +1,21 @@
+"use client";
+
+import { useLanguage } from "@/components/language-provider";
 import type { DailyBriefing } from "@/lib/types";
 
 export function BriefingPanel({ briefing }: { briefing: DailyBriefing }) {
+  const { t } = useLanguage();
   const sections: [string, string[]][] = [
-    ["今日市场状态", briefing.market],
-    ["我的持仓风险", briefing.portfolioRisk],
-    ["今日机会", briefing.opportunities],
-    ["今日风险", briefing.risks],
-    ["未来 7 天事件", briefing.upcomingEvents]
+    [t("marketBrief"), [t("briefMarket1"), t("briefMarket2")]],
+    [t("portfolioRisk"), [t("briefRisk1"), t("briefRisk2")]],
+    [t("todayOpportunities"), [t("briefOpp1"), t("briefOpp2")]],
+    [t("risksToday"), [t("briefTodayRisk1"), t("briefTodayRisk2")]],
+    [t("upcomingEvents"), briefing.upcomingEvents]
   ];
 
   return (
     <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
-      <h2 className="text-lg font-semibold">每日 AI 投资简报</h2>
+      <h2 className="text-lg font-semibold">{t("aiBriefing")}</h2>
       <div className="mt-4 space-y-4">
         {sections.map(([title, items]) => (
           <section key={title}>

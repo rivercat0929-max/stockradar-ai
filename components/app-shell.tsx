@@ -1,33 +1,43 @@
+"use client";
+
 import Link from "next/link";
 import { Disclaimer } from "@/components/disclaimer";
+import { LanguageSwitcher } from "@/components/language-switcher";
+import { useLanguage } from "@/components/language-provider";
+import type { TranslationKey } from "@/lib/i18n";
 
-const navItems = [
-  { href: "/", label: "Dashboard" },
-  { href: "/holdings", label: "我的持仓" },
-  { href: "/radar", label: "选股雷达" },
-  { href: "/calendar", label: "事件日历" },
-  { href: "/backtest", label: "回测实验室" }
+const navItems: { href: string; labelKey: TranslationKey }[] = [
+  { href: "/", labelKey: "dashboard" },
+  { href: "/holdings", labelKey: "portfolio" },
+  { href: "/radar", labelKey: "radar" },
+  { href: "/calendar", labelKey: "calendar" },
+  { href: "/backtest", labelKey: "backtest" }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
+  const { t } = useLanguage();
+
   return (
     <div className="min-h-screen">
-      <header className="border-b border-line bg-white">
+      <header className="border-b border-slate-800 bg-slate-950 text-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Link href="/" className="text-xl font-bold tracking-normal">
-              AI 股票雷达 <span className="text-muted">/ StockRadar AI</span>
+              {t("appName")} <span className="text-slate-400">/ StockRadar AI</span>
             </Link>
-            <span className="rounded-md border border-line px-3 py-1 text-sm text-muted">MVP Mock</span>
+            <div className="flex items-center gap-3">
+              <span className="rounded-md border border-slate-700 px-3 py-1 text-sm text-slate-300">MVP</span>
+              <LanguageSwitcher />
+            </div>
           </div>
           <nav className="flex gap-2 overflow-x-auto">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-muted hover:bg-panel hover:text-ink"
+                className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white"
               >
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             ))}
           </nav>

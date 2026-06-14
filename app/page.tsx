@@ -1,34 +1,34 @@
+"use client";
+
 import { BriefingPanel } from "@/components/briefing-panel";
 import { DataTable } from "@/components/data-table";
+import { Disclaimer } from "@/components/disclaimer";
+import { useLanguage } from "@/components/language-provider";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { ScoreBadge } from "@/components/score-badge";
-import { Disclaimer } from "@/components/disclaimer";
 import { alerts, dailyBriefing, holdings, marketStatus, stocks } from "@/lib/mock-data";
 import { getPortfolioSummary } from "@/lib/portfolio";
 
 export default function DashboardPage() {
+  const { t } = useLanguage();
   const summary = getPortfolioSummary(holdings);
   const opportunities = stocks.filter((stock) => stock.score.totalScore >= 76).slice(0, 4);
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Dashboard 首页"
-        eyebrow="StockRadar AI"
-        description="今日市场状态、组合风险、重要提醒和 AI 简报集中在这里。"
-      />
+      <PageHeader title={t("dashboard")} eyebrow="StockRadar AI" description={t("dashboardDescription")} />
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="今日市场状态" value={marketStatus.label} detail={marketStatus.summary} tone="blue" />
-        <MetricCard label="组合总市值" value={`$${summary.totalValue.toLocaleString()}`} detail={`今日盈亏 ${summary.dayChangePercent}%`} tone="green" />
-        <MetricCard label="最大单股占比" value={`${summary.largestHolding.ticker} ${summary.largestHolding.allocation}%`} detail="目标低于 35% 更稳健" tone="amber" />
-        <MetricCard label="组合风险等级" value={summary.riskLevel} detail={summary.riskNotes[0]} tone="red" />
+        <MetricCard label={t("todayMarketStatus")} value={marketStatus.label} detail={marketStatus.summary} tone="blue" />
+        <MetricCard label={t("portfolioMarketValue")} value={`$${summary.totalValue.toLocaleString()}`} detail={`${t("todayPL")} ${summary.dayChangePercent}%`} tone="green" />
+        <MetricCard label={t("largestHolding")} value={`${summary.largestHolding.ticker} ${summary.largestHolding.allocation}%`} detail="< 35%" tone="amber" />
+        <MetricCard label={t("portfolioRiskLevel")} value={summary.riskLevel} detail={summary.riskNotes[0]} tone="red" />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
         <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
-          <h2 className="text-lg font-semibold">今日重要提醒</h2>
+          <h2 className="text-lg font-semibold">{t("importantAlerts")}</h2>
           <div className="mt-4 space-y-3">
             {alerts.slice(0, 4).map((alert) => (
               <div key={alert.id} className="flex gap-3 rounded-md border border-line bg-panel p-3">
@@ -46,11 +46,11 @@ export default function DashboardPage() {
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-4">
-          <h2 className="text-lg font-semibold">今日机会</h2>
-          <span className="text-sm text-muted">基于 mock 评分规则</span>
+          <h2 className="text-lg font-semibold">{t("todayOpportunities")}</h2>
+          <span className="text-sm text-muted">{t("basedOnMockScoring")}</span>
         </div>
         <DataTable
-          columns={["股票", "公司", "总分", "状态", "操作建议"]}
+          columns={[t("ticker"), t("company"), t("totalScore"), t("status"), t("recommendation")]}
           rows={opportunities.map((stock) => [
             stock.ticker,
             stock.companyName,

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useLanguage } from "@/components/language-provider";
 import type { Holding } from "@/lib/types";
 
 export type HoldingFormValues = {
@@ -34,6 +35,7 @@ export function HoldingForm({
   onSave: (values: HoldingFormValues) => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
   const [values, setValues] = useState<HoldingFormValues>(emptyValues);
   const [clientError, setClientError] = useState<string | null>(null);
 
@@ -61,7 +63,7 @@ export function HoldingForm({
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const validationError = validate(values);
+    const validationError = validate(values, t);
     setClientError(validationError);
     if (validationError) return;
     onSave(values);
@@ -73,24 +75,24 @@ export function HoldingForm({
     <form onSubmit={submit} className="rounded-lg border border-slate-700 bg-slate-950 p-5 text-white shadow-soft">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold">{holding ? "Edit Holding" : "Add Holding"}</h2>
-          <p className="mt-1 text-sm text-slate-400">Stored in SQLite through Prisma API routes.</p>
+          <h2 className="text-lg font-semibold">{holding ? t("editHolding") : t("addHolding")}</h2>
+          <p className="mt-1 text-sm text-slate-400">{t("storedInDb")}</p>
         </div>
         {holding ? (
           <button type="button" onClick={onCancel} className="text-sm font-semibold text-slate-300 hover:text-white">
-            Cancel
+            {t("cancel")}
           </button>
         ) : null}
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Ticker" value={values.ticker} onChange={(value) => update("ticker", value)} required />
-        <Field label="Company Name" value={values.companyName} onChange={(value) => update("companyName", value)} />
-        <Field label="Shares" type="number" min="0.000001" step="any" value={values.shares} onChange={(value) => update("shares", value)} required />
-        <Field label="Average Cost" type="number" min="0" step="any" value={values.averageCost} onChange={(value) => update("averageCost", value)} required />
-        <Field label="Target Allocation %" type="number" min="0" step="any" value={values.targetAllocation} onChange={(value) => update("targetAllocation", value)} />
+        <Field label={t("ticker")} value={values.ticker} onChange={(value) => update("ticker", value)} required />
+        <Field label={t("companyName")} value={values.companyName} onChange={(value) => update("companyName", value)} />
+        <Field label={t("shares")} type="number" min="0.000001" step="any" value={values.shares} onChange={(value) => update("shares", value)} required />
+        <Field label={t("averageCost")} type="number" min="0" step="any" value={values.averageCost} onChange={(value) => update("averageCost", value)} required />
+        <Field label={t("targetAllocationPercent")} type="number" min="0" step="any" value={values.targetAllocation} onChange={(value) => update("targetAllocation", value)} />
         <label className="text-sm sm:col-span-2">
-          <span className="font-medium text-slate-300">Notes</span>
+          <span className="font-medium text-slate-300">{t("notes")}</span>
           <textarea
             value={values.notes}
             onChange={(event) => update("notes", event.target.value)}
@@ -107,7 +109,7 @@ export function HoldingForm({
         disabled={isSaving}
         className="mt-5 rounded-md bg-blue-500 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-400 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {isSaving ? "Saving..." : "Save Holding"}
+        {isSaving ? t("saving") : t("save")}
       </button>
     </form>
   );
@@ -146,9 +148,9 @@ function Field({
   );
 }
 
-function validate(values: HoldingFormValues) {
-  if (!values.ticker.trim()) return "Ticker is required.";
-  if (!Number.isFinite(Number(values.shares)) || Number(values.shares) <= 0) return "Shares must be greater than 0.";
-  if (!Number.isFinite(Number(values.averageCost)) || Number(values.averageCost) < 0) return "Average cost must be greater than or equal to 0.";
+function validate(values: HoldingFormValues, t: ReturnType<typeof useLanguage>["t"]) {
+  if (!values.ticker.trim()) return t("tickerRequired");
+  if (!Number.isFinite(Number(values.shares)) || Number(values.shares) <= 0) return t("sharesPositive");
+  if (!Number.isFinite(Number(values.averageCost)) || Number(values.averageCost) < 0) return t("averageCostNonNegative");
   return null;
 }
