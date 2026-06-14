@@ -1,80 +1,124 @@
-import { NextResponse } from "next/server";
-import { Prisma } from "@prisma/client";
-import { prisma } from "@/lib/prisma";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { parseHoldingInput } from "@/lib/holdings-validation";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
+export const revalidate = 0;
+
+let prismaClient: PrismaClient | null = null;
+
+function getPrisma() {
+  if (!prismaClient) {
+    prismaClient = new PrismaClient();
+  }
+
+  return prismaClient;
+}
+
+function databaseNotConfigured() {
+  return Response.json({ error: "Database is not configured" }, { status: 503 });
+}
 
 export async function GET() {
-  const holdings = await prisma.holding.findMany({
-    orderBy: { createdAt: "desc" }
-  });
+  try {
+    if (!process.env.DATABASE_URL) {
+      return Response.json([]);
+    }
 
-  return NextResponse.json(holdings);
+    const holdings = await getPrisma().holding.findMany({
+      orderBy: { createdAt: "desc" }
+    });
+
+    return Response.json(holdings);
+  } catch (error) {
+    console.error("GET /api/holdings failed", error);
+    return Response.json([]);
+  }
 }
 
 export async function POST(request: Request) {
-  const result = parseHoldingInput(await request.json().catch(() => null));
+  try {
+    if (!process.env.DATABASE_URL) {
+      return databaseNotConfigured();
+    }
 
-  if (!result.data) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
+    const body = await request.json();
+    const result = parseHoldingInput(body);
+
+    if (!result.data) {
+      return Response.json({ error: result.error }, { status: 400 });
+    }
+
+    const holding = await getPrisma().holding.create({
+      data: result.data
+    });
+
+    return Response.json(holding, { status: 201 });
+  } catch (error) {
+    console.error("POST /api/holdings failed", error);
+    return Response.json({ error: "Failed to create holding" }, { status: 500 });
   }
-
-  const holding = await prisma.holding.create({
-    data: result.data
-  });
-
-  return NextResponse.json(holding, { status: 201 });
 }
 
 export async function PUT(request: Request) {
-  const body = await request.json().catch(() => null);
-  const id = getHoldingId(body);
-  if (!id) {
-    return NextResponse.json({ error: "Holding id is required." }, { status: 400 });
-  }
-
-  const result = parseHoldingInput(body);
-  if (!result.data) {
-    return NextResponse.json({ error: result.error }, { status: 400 });
-  }
-
   try {
-    const holding = await prisma.holding.update({
+    if (!process.env.DATABASE_URL) {
+      return databaseNotConfigured();
+    }
+
+    const body = await request.json();
+    const id = getHoldingId(body);
+    if (!id) {
+      return Response.json({ error: "Holding id is required." }, { status: 400 });
+    }
+
+    const result = parseHoldingInput(body);
+    if (!result.data) {
+      return Response.json({ error: result.error }, { status: 400 });
+    }
+
+    const holding = await getPrisma().holding.update({
       where: { id },
       data: result.data
     });
 
-    return NextResponse.json(holding);
+    return Response.json(holding);
   } catch (error) {
+    console.error("PUT /api/holdings failed", error);
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
-      return NextResponse.json({ error: "Holding not found." }, { status: 404 });
+      return Response.json({ error: "Holding not found." }, { status: 404 });
     }
 
-    throw error;
+    return Response.json({ error: "Failed to update holding" }, { status: 500 });
   }
 }
 
 export async function DELETE(request: Request) {
-  const body = await request.json().catch(() => null);
-  const id = getHoldingId(body);
-  if (!id) {
-    return NextResponse.json({ error: "Holding id is required." }, { status: 400 });
-  }
-
   try {
-    await prisma.holding.delete({
+    if (!process.env.DATABASE_URL) {
+      return databaseNotConfigured();
+    }
+
+    const body = await request.json();
+    const id = getHoldingId(body);
+    if (!id) {
+      return Response.json({ error: "Holding id is required." }, { status: 400 });
+    }
+
+    await getPrisma().holding.delete({
       where: { id }
     });
 
-    return NextResponse.json({ ok: true });
+    return Response.json({ ok: true });
   } catch (error) {
+    console.error("DELETE /api/holdings failed", error);
+
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
-      return NextResponse.json({ error: "Holding not found." }, { status: 404 });
+      return Response.json({ error: "Holding not found." }, { status: 404 });
     }
 
-    throw error;
+    return Response.json({ error: "Failed to delete holding" }, { status: 500 });
   }
 }
 
