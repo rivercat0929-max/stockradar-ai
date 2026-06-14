@@ -7,6 +7,7 @@ import { PageHeader } from "@/components/page-header";
 import type { Holding } from "@/lib/types";
 
 type SavePayload = {
+  id?: string;
   ticker: string;
   companyName: string | null;
   shares: number;
@@ -49,12 +50,12 @@ export default function HoldingsPage() {
   }
 
   async function saveHolding(values: HoldingFormValues) {
-    const payload = toPayload(values);
+    const payload = editing ? { id: editing.id, ...toPayload(values) } : toPayload(values);
     setIsSaving(true);
     setError(null);
 
     try {
-      const response = await fetch(editing ? `/api/holdings/${editing.id}` : "/api/holdings", {
+      const response = await fetch("/api/holdings", {
         method: editing ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload)
@@ -80,7 +81,11 @@ export default function HoldingsPage() {
 
     setError(null);
     try {
-      const response = await fetch(`/api/holdings/${holding.id}`, { method: "DELETE" });
+      const response = await fetch("/api/holdings", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: holding.id })
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Failed to delete holding.");
       setHoldings((current) => current.filter((item) => item.id !== holding.id));
