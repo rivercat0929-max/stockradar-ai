@@ -52,6 +52,12 @@ Create/apply the initial PostgreSQL migration:
 npx prisma migrate dev --name init_postgres
 ```
 
+Apply committed migrations to a Neon database, for example before or after a production deployment:
+
+```bash
+npx prisma migrate deploy
+```
+
 ## Local Development
 
 ```bash

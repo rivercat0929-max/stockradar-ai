@@ -56,7 +56,7 @@ export async function POST(request: Request) {
     return Response.json(holding, { status: 201 });
   } catch (error) {
     console.error("POST /api/holdings failed", error);
-    return Response.json({ error: "Failed to create holding" }, { status: 500 });
+    return prismaErrorResponse(error, "Failed to create holding");
   }
 }
 
@@ -90,7 +90,7 @@ export async function PUT(request: Request) {
       return Response.json({ error: "Holding not found." }, { status: 404 });
     }
 
-    return Response.json({ error: "Failed to update holding" }, { status: 500 });
+    return prismaErrorResponse(error, "Failed to update holding");
   }
 }
 
@@ -118,7 +118,7 @@ export async function DELETE(request: Request) {
       return Response.json({ error: "Holding not found." }, { status: 404 });
     }
 
-    return Response.json({ error: "Failed to delete holding" }, { status: 500 });
+    return prismaErrorResponse(error, "Failed to delete holding");
   }
 }
 
@@ -126,4 +126,22 @@ function getHoldingId(body: unknown) {
   if (!body || typeof body !== "object") return null;
   const id = (body as Record<string, unknown>).id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+function prismaErrorResponse(error: unknown, fallback: string) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    if (error.code === "P2021") {
+      return Response.json({ error: "Database table is missing. Run Prisma migrations for the Neon database." }, { status: 500 });
+    }
+
+    if (error.code === "P2002") {
+      return Response.json({ error: "A record with the same unique value already exists." }, { status: 409 });
+    }
+  }
+
+  if (error instanceof Prisma.PrismaClientInitializationError) {
+    return Response.json({ error: "Database connection failed. Check DATABASE_URL in Vercel." }, { status: 503 });
+  }
+
+  return Response.json({ error: fallback }, { status: 500 });
 }
