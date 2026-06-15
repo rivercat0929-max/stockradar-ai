@@ -41,7 +41,7 @@ export default function HoldingsPage() {
   );
   const totalUnrealizedPL = totalMarketValue - totalCost;
   const totalReturnPercent = totalCost > 0 ? (totalUnrealizedPL / totalCost) * 100 : 0;
-  const isUsingFallbackPrices = holdings.some((holding) => holding.marketDataSource === "fallback");
+  const isUsingFallbackPrices = holdings.some((holding) => holding.marketDataSource === "yahoo" || holding.marketDataSource === "mock");
 
   async function loadHoldings() {
     setIsLoading(true);

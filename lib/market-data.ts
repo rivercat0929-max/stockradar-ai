@@ -1,4 +1,4 @@
-export type MarketDataSource = "fmp" | "yahoo" | "mock";
+export type MarketDataSource = "fmp-stable" | "yahoo" | "mock";
 
 export type Quote = {
   ticker: string;
@@ -77,7 +77,7 @@ async function getFmpStableQuote(ticker: string, apiKey: string): Promise<Quote 
       dayLow: nullableNumber(quote.dayLow),
       yearHigh: nullableNumber(quote.yearHigh),
       yearLow: nullableNumber(quote.yearLow),
-      marketDataSource: "fmp",
+      marketDataSource: "fmp-stable",
       isFallback: false
     };
   } catch {

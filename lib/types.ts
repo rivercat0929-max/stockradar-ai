@@ -37,7 +37,7 @@ export interface Holding {
   unrealizedPL?: number;
   unrealizedPLPercent?: number;
   allocation?: number;
-  marketDataSource?: "fmp" | "fallback";
+  marketDataSource?: "fmp-stable" | "yahoo" | "mock";
 }
 
 export interface StockScore {
