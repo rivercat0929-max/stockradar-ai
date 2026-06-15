@@ -32,9 +32,16 @@ export default function HoldingsPage() {
   }, []);
 
   const totalCost = useMemo(
-    () => holdings.reduce((sum, holding) => sum + holding.shares * holding.averageCost, 0),
+    () => holdings.reduce((sum, holding) => sum + (holding.totalCost ?? holding.shares * holding.averageCost), 0),
     [holdings]
   );
+  const totalMarketValue = useMemo(
+    () => holdings.reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0),
+    [holdings]
+  );
+  const totalUnrealizedPL = totalMarketValue - totalCost;
+  const totalReturnPercent = totalCost > 0 ? (totalUnrealizedPL / totalCost) * 100 : 0;
+  const isUsingFallbackPrices = holdings.some((holding) => holding.marketDataSource === "fallback");
 
   async function loadHoldings() {
     setIsLoading(true);
@@ -129,11 +136,18 @@ export default function HoldingsPage() {
       />
 
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
-        <div className="grid gap-4 sm:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
           <SummaryCard label={t("holdingsCount")} value={holdings.length.toLocaleString()} />
-          <SummaryCard label={t("totalCostBasis")} value={`$${totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-          <SummaryCard label={t("storage")} value="Neon PostgreSQL" />
+          <SummaryCard label={t("totalCostBasis")} value={formatCurrency(totalCost)} />
+          <SummaryCard label={t("totalMarketValue")} value={formatCurrency(totalMarketValue)} />
+          <SummaryCard label={t("totalUnrealizedPL")} value={formatSignedCurrency(totalUnrealizedPL)} tone={totalUnrealizedPL >= 0 ? "gain" : "loss"} />
+          <SummaryCard label={t("totalReturn")} value={formatPercent(totalReturnPercent)} tone={totalUnrealizedPL >= 0 ? "gain" : "loss"} />
         </div>
+        {isUsingFallbackPrices ? (
+          <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
+            {t("marketDataFallbackNotice")}
+          </p>
+        ) : null}
       </section>
 
       {showForm ? (
@@ -152,7 +166,20 @@ export default function HoldingsPage() {
           <table className="min-w-full border-separate border-spacing-0 text-left text-sm">
             <thead>
               <tr>
-                {[t("ticker"), t("companyName"), t("shares"), t("averageCost"), t("targetAllocation"), t("notes"), t("actions")].map((column) => (
+                {[
+                  t("ticker"),
+                  t("companyName"),
+                  t("shares"),
+                  t("averageCost"),
+                  t("currentPrice"),
+                  t("marketValue"),
+                  t("unrealizedPL"),
+                  t("returnPercent"),
+                  t("allocation"),
+                  t("targetAllocation"),
+                  t("notes"),
+                  t("actions")
+                ].map((column) => (
                   <th key={column} className="border-b border-slate-800 bg-slate-900 px-3 py-3 font-semibold text-slate-300 first:rounded-l-md last:rounded-r-md">
                     {column}
                   </th>
@@ -162,7 +189,7 @@ export default function HoldingsPage() {
             <tbody>
               {!isLoading && holdings.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-3 py-8 text-center text-slate-400">
+                  <td colSpan={12} className="px-3 py-8 text-center text-slate-400">
                     {t("noHoldings")}
                   </td>
                 </tr>
@@ -172,7 +199,16 @@ export default function HoldingsPage() {
                   <td className="border-b border-slate-800 px-3 py-3 font-semibold">{holding.ticker}</td>
                   <td className="border-b border-slate-800 px-3 py-3 text-slate-300">{holding.companyName ?? "-"}</td>
                   <td className="border-b border-slate-800 px-3 py-3">{holding.shares.toLocaleString()}</td>
-                  <td className="border-b border-slate-800 px-3 py-3">${holding.averageCost.toLocaleString()}</td>
+                  <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.averageCost)}</td>
+                  <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.currentPrice ?? 0)}</td>
+                  <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.marketValue ?? 0)}</td>
+                  <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
+                    {formatSignedCurrency(holding.unrealizedPL ?? 0)}
+                  </td>
+                  <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
+                    {formatPercent(holding.unrealizedPLPercent ?? 0)}
+                  </td>
+                  <td className="border-b border-slate-800 px-3 py-3">{formatPercent(holding.allocation ?? 0)}</td>
                   <td className="border-b border-slate-800 px-3 py-3">{holding.targetAllocation == null ? "-" : `${holding.targetAllocation}%`}</td>
                   <td className="max-w-xs border-b border-slate-800 px-3 py-3 text-slate-300">{holding.notes ?? "-"}</td>
                   <td className="border-b border-slate-800 px-3 py-3">
@@ -197,13 +233,40 @@ export default function HoldingsPage() {
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
+function SummaryCard({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "gain" | "loss" }) {
+  const toneClass = tone === "gain" ? "text-green-300" : tone === "loss" ? "text-red-300" : "text-white";
+
   return (
     <div className="rounded-md border border-slate-800 bg-slate-900 p-4">
       <p className="text-sm text-slate-400">{label}</p>
-      <p className="mt-2 text-2xl font-semibold">{value}</p>
+      <p className={`mt-2 text-2xl font-semibold ${toneClass}`}>{value}</p>
     </div>
   );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 2
+  }).format(value);
+}
+
+function formatSignedCurrency(value: number) {
+  const formatted = formatCurrency(Math.abs(value));
+  if (value > 0) return `+${formatted}`;
+  if (value < 0) return `-${formatted}`;
+  return formatted;
+}
+
+function formatPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function getGainLossClass(value: number) {
+  if (value > 0) return "text-green-300";
+  if (value < 0) return "text-red-300";
+  return "text-slate-300";
 }
 
 function toPayload(values: HoldingFormValues): SavePayload {

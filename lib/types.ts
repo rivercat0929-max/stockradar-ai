@@ -32,6 +32,12 @@ export interface Holding {
   userId?: string;
   currentPrice?: number;
   riskStatus?: string;
+  marketValue?: number;
+  totalCost?: number;
+  unrealizedPL?: number;
+  unrealizedPLPercent?: number;
+  allocation?: number;
+  marketDataSource?: "fmp" | "fallback";
 }
 
 export interface StockScore {
