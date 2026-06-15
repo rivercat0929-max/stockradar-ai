@@ -1,4 +1,5 @@
 export type HoldingInput = {
+  accountId: string;
   ticker: string;
   companyName?: string | null;
   shares: number;
@@ -13,6 +14,7 @@ export function parseHoldingInput(body: unknown): { data?: HoldingInput; error?:
   }
 
   const input = body as Record<string, unknown>;
+  const accountId = String(input.accountId ?? "").trim();
   const ticker = String(input.ticker ?? "").trim().toUpperCase();
   const companyName = normalizeOptionalString(input.companyName);
   const notes = normalizeOptionalString(input.notes);
@@ -23,6 +25,7 @@ export function parseHoldingInput(body: unknown): { data?: HoldingInput; error?:
       ? null
       : Number(input.targetAllocation);
 
+  if (!accountId) return { error: "Account is required." };
   if (!ticker) return { error: "Ticker is required." };
   if (!Number.isFinite(shares) || shares <= 0) return { error: "Shares must be greater than 0." };
   if (!Number.isFinite(averageCost) || averageCost < 0) return { error: "Average cost must be greater than or equal to 0." };
@@ -32,6 +35,7 @@ export function parseHoldingInput(body: unknown): { data?: HoldingInput; error?:
 
   return {
     data: {
+      accountId,
       ticker,
       companyName,
       shares,

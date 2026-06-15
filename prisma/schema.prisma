@@ -29,6 +29,8 @@ model Watchlist {
 
 model Holding {
   id               String   @id @default(cuid())
+  accountId        String
+  account          PortfolioAccount @relation(fields: [accountId], references: [id], onDelete: Cascade)
   ticker           String
   companyName      String?
   shares           Float
@@ -37,6 +39,17 @@ model Holding {
   notes            String?
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
+}
+
+model PortfolioAccount {
+  id          String    @id @default(cuid())
+  name        String
+  broker      String?
+  accountType String?
+  currency    String    @default("USD")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  holdings    Holding[]
 }
 
 model StockScore {

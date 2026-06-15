@@ -27,6 +27,7 @@ export async function GET() {
     }
 
     const holdings = await getPrisma().holding.findMany({
+      include: { account: true },
       orderBy: { createdAt: "desc" }
     });
 
@@ -53,10 +54,12 @@ export async function POST(request: Request) {
     }
 
     const holding = await getPrisma().holding.create({
-      data: result.data
+      data: result.data,
+      include: { account: true }
     });
 
-    return Response.json(holding, { status: 201 });
+    const [enrichedHolding] = await enrichHoldingsWithMarketData([holding]);
+    return Response.json(enrichedHolding, { status: 201 });
   } catch (error) {
     console.error("POST /api/holdings failed", error);
     return prismaErrorResponse(error, "Failed to create holding");
@@ -82,10 +85,12 @@ export async function PUT(request: Request) {
 
     const holding = await getPrisma().holding.update({
       where: { id },
-      data: result.data
+      data: result.data,
+      include: { account: true }
     });
 
-    return Response.json(holding);
+    const [enrichedHolding] = await enrichHoldingsWithMarketData([holding]);
+    return Response.json(enrichedHolding);
   } catch (error) {
     console.error("PUT /api/holdings failed", error);
 

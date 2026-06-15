@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useLanguage } from "@/components/language-provider";
-import type { Holding } from "@/lib/types";
+import type { Holding, PortfolioAccount } from "@/lib/types";
 
 export type HoldingFormValues = {
+  accountId: string;
   ticker: string;
   companyName: string;
   shares: string;
@@ -14,6 +15,7 @@ export type HoldingFormValues = {
 };
 
 const emptyValues: HoldingFormValues = {
+  accountId: "",
   ticker: "",
   companyName: "",
   shares: "",
@@ -24,12 +26,14 @@ const emptyValues: HoldingFormValues = {
 
 export function HoldingForm({
   holding,
+  accounts,
   isSaving,
   error,
   onSave,
   onCancel
 }: {
   holding: Holding | null;
+  accounts: PortfolioAccount[];
   isSaving: boolean;
   error: string | null;
   onSave: (values: HoldingFormValues) => void;
@@ -38,15 +42,17 @@ export function HoldingForm({
   const { t } = useLanguage();
   const [values, setValues] = useState<HoldingFormValues>(emptyValues);
   const [clientError, setClientError] = useState<string | null>(null);
+  const [isLookingUp, setIsLookingUp] = useState(false);
 
   useEffect(() => {
     if (!holding) {
-      setValues(emptyValues);
+      setValues({ ...emptyValues, accountId: accounts[0]?.id ?? "" });
       setClientError(null);
       return;
     }
 
     setValues({
+      accountId: holding.accountId ?? accounts[0]?.id ?? "",
       ticker: holding.ticker,
       companyName: holding.companyName ?? "",
       shares: String(holding.shares),
@@ -55,10 +61,42 @@ export function HoldingForm({
       notes: holding.notes ?? ""
     });
     setClientError(null);
-  }, [holding]);
+  }, [holding, accounts]);
+
+  useEffect(() => {
+    const symbol = values.ticker.trim().toUpperCase();
+    if (!symbol || symbol.length < 2) return;
+
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      setIsLookingUp(true);
+      try {
+        const response = await fetch(`/api/stocks/lookup?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+        if (!response.ok) return;
+
+        const data = await response.json();
+        if (!cancelled && data.companyName) {
+          setValues((current) => {
+            if (current.ticker.trim().toUpperCase() !== symbol) return current;
+            return {
+              ...current,
+              companyName: current.companyName.trim() ? current.companyName : data.companyName
+            };
+          });
+        }
+      } finally {
+        if (!cancelled) setIsLookingUp(false);
+      }
+    }, 450);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [values.ticker]);
 
   function update(key: keyof HoldingFormValues, value: string) {
-    setValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => ({ ...current, [key]: key === "ticker" ? value.toUpperCase() : value }));
   }
 
   function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -86,8 +124,27 @@ export function HoldingForm({
       </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
+        <label className="text-sm">
+          <span className="font-medium text-slate-300">{t("account")}</span>
+          <select
+            value={values.accountId}
+            onChange={(event) => update("accountId", event.target.value)}
+            className="mt-1 w-full rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-white outline-none focus:border-blue-400"
+            required
+          >
+            <option value="">{t("selectAccount")}</option>
+            {accounts.map((account) => (
+              <option key={account.id} value={account.id}>
+                {account.name}
+              </option>
+            ))}
+          </select>
+        </label>
         <Field label={t("ticker")} value={values.ticker} onChange={(value) => update("ticker", value)} required />
-        <Field label={t("companyName")} value={values.companyName} onChange={(value) => update("companyName", value)} />
+        <div>
+          <Field label={t("companyName")} value={values.companyName} onChange={(value) => update("companyName", value)} />
+          {isLookingUp ? <p className="mt-1 text-xs text-slate-400">{t("lookupCompanyName")}</p> : null}
+        </div>
         <Field label={t("shares")} type="number" min="0.000001" step="any" value={values.shares} onChange={(value) => update("shares", value)} required />
         <Field label={t("averageCost")} type="number" min="0" step="any" value={values.averageCost} onChange={(value) => update("averageCost", value)} required />
         <Field label={t("targetAllocationPercent")} type="number" min="0" step="any" value={values.targetAllocation} onChange={(value) => update("targetAllocation", value)} />
@@ -149,6 +206,7 @@ function Field({
 }
 
 function validate(values: HoldingFormValues, t: ReturnType<typeof useLanguage>["t"]) {
+  if (!values.accountId.trim()) return t("accountRequired");
   if (!values.ticker.trim()) return t("tickerRequired");
   if (!Number.isFinite(Number(values.shares)) || Number(values.shares) <= 0) return t("sharesPositive");
   if (!Number.isFinite(Number(values.averageCost)) || Number(values.averageCost) < 0) return t("averageCostNonNegative");

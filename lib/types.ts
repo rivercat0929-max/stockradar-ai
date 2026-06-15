@@ -19,8 +19,20 @@ export interface Watchlist {
   createdAt: string;
 }
 
+export interface PortfolioAccount {
+  id: string;
+  name: string;
+  broker?: string | null;
+  accountType?: string | null;
+  currency: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
+}
+
 export interface Holding {
   id: string;
+  accountId?: string;
+  account?: PortfolioAccount;
   ticker: string;
   companyName?: string | null;
   shares: number;

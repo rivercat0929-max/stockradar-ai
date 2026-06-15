@@ -63,6 +63,12 @@ https://financialmodelingprep.com/stable/quote?symbol=TSLA
 
 If `FMP_API_KEY` is missing or the FMP stable quote request fails, the holdings API tries the Yahoo Finance unofficial chart API. If Yahoo also fails, it falls back to built-in sample prices for the MVP tickers.
 
+The holdings module also uses the FMP stable profile/quote APIs to auto-fill company names when users enter a ticker.
+
+## Portfolio Accounts
+
+Holdings are grouped by `PortfolioAccount`. Each holding must belong to an account such as Questrade TFSA, iTRADE RRSP, Margin, or Cash. Existing holdings are assigned to a default account by the portfolio accounts migration.
+
 ## Prisma Commands
 
 Generate Prisma Client:

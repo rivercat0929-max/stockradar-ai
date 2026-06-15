@@ -16,6 +16,13 @@ export type Quote = {
   isFallback: boolean;
 };
 
+export type StockLookup = {
+  symbol: string;
+  companyName: string;
+  price: number | null;
+  currency: string;
+};
+
 const fallbackPrices: Record<string, number> = {
   TSLA: 320,
   AMZN: 220,
@@ -27,8 +34,26 @@ const fallbackPrices: Record<string, number> = {
   AAPL: 210
 };
 
+const fallbackNames: Record<string, string> = {
+  TSLA: "Tesla, Inc.",
+  AMZN: "Amazon.com, Inc.",
+  NVDA: "NVIDIA Corporation",
+  CEG: "Constellation Energy Corporation",
+  MSFT: "Microsoft Corporation",
+  GOOGL: "Alphabet Inc.",
+  META: "Meta Platforms, Inc.",
+  AAPL: "Apple Inc."
+};
+
 export function getFmpStableQuoteUrl(ticker: string, apiKey: string) {
   const url = new URL("https://financialmodelingprep.com/stable/quote");
+  url.searchParams.set("symbol", ticker.trim().toUpperCase());
+  url.searchParams.set("apikey", apiKey);
+  return url.toString();
+}
+
+export function getFmpStableProfileUrl(ticker: string, apiKey: string) {
+  const url = new URL("https://financialmodelingprep.com/stable/profile");
   url.searchParams.set("symbol", ticker.trim().toUpperCase());
   url.searchParams.set("apikey", apiKey);
   return url.toString();
@@ -54,6 +79,66 @@ export async function getQuote(ticker: string): Promise<Quote> {
   if (yahooQuote) return yahooQuote;
 
   return mockQuote(normalizedTicker);
+}
+
+export async function lookupStock(symbol: string): Promise<StockLookup> {
+  const normalizedSymbol = symbol.trim().toUpperCase();
+  const apiKey = process.env.FMP_API_KEY;
+
+  if (apiKey) {
+    const fmpProfile = await getFmpStableProfile(normalizedSymbol, apiKey);
+    if (fmpProfile) return fmpProfile;
+
+    const fmpQuote = await getFmpStableQuote(normalizedSymbol, apiKey);
+    if (fmpQuote) {
+      return {
+        symbol: fmpQuote.ticker,
+        companyName: fmpQuote.name,
+        price: fmpQuote.price,
+        currency: "USD"
+      };
+    }
+  }
+
+  const yahooQuote = await getYahooQuote(normalizedSymbol);
+  if (yahooQuote) {
+    return {
+      symbol: yahooQuote.ticker,
+      companyName: yahooQuote.name,
+      price: yahooQuote.price,
+      currency: "USD"
+    };
+  }
+
+  return {
+    symbol: normalizedSymbol,
+    companyName: fallbackNames[normalizedSymbol] ?? normalizedSymbol,
+    price: fallbackPrices[normalizedSymbol] ?? null,
+    currency: "USD"
+  };
+}
+
+async function getFmpStableProfile(ticker: string, apiKey: string): Promise<StockLookup | null> {
+  try {
+    const response = await fetch(getFmpStableProfileUrl(ticker, apiKey), { cache: "no-store" });
+    if (!response.ok) return null;
+
+    const data = await response.json();
+    const profile = Array.isArray(data) ? data[0] : null;
+    if (!profile) return null;
+
+    const companyName = profile.companyName ?? profile.companyNameLong ?? profile.name;
+    if (typeof companyName !== "string" || !companyName.trim()) return null;
+
+    return {
+      symbol: String(profile.symbol ?? ticker).toUpperCase(),
+      companyName,
+      price: nullableNumber(profile.price),
+      currency: typeof profile.currency === "string" ? profile.currency : "USD"
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function getFmpStableQuote(ticker: string, apiKey: string): Promise<Quote | null> {
@@ -102,7 +187,7 @@ async function getYahooQuote(ticker: string): Promise<Quote | null> {
 
     return {
       ticker,
-      name: String(meta?.shortName ?? meta?.longName ?? ticker),
+      name: String(meta?.shortName ?? meta?.longName ?? fallbackNames[ticker] ?? ticker),
       price,
       change: roundNumber(change),
       changesPercentage: roundNumber(changesPercentage),
@@ -125,7 +210,7 @@ function mockQuote(ticker: string): Quote {
 
   return {
     ticker,
-    name: ticker,
+    name: fallbackNames[ticker] ?? ticker,
     price,
     change: 0,
     changesPercentage: 0,
