@@ -1,5 +1,6 @@
 import { Prisma, PrismaClient } from "@prisma/client";
 import { parseHoldingInput } from "@/lib/holdings-validation";
+import { getQuote } from "@/lib/market-data";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -29,7 +30,9 @@ export async function GET() {
       orderBy: { createdAt: "desc" }
     });
 
-    return Response.json(holdings);
+    const enrichedHoldings = await enrichHoldingsWithMarketData(holdings);
+
+    return Response.json(enrichedHoldings);
   } catch (error) {
     console.error("GET /api/holdings failed", error);
     return Response.json([]);
@@ -126,6 +129,50 @@ function getHoldingId(body: unknown) {
   if (!body || typeof body !== "object") return null;
   const id = (body as Record<string, unknown>).id;
   return typeof id === "string" && id.trim() ? id.trim() : null;
+}
+
+async function enrichHoldingsWithMarketData<T extends { ticker: string; shares: number; averageCost: number }>(holdings: T[]) {
+  const quotedHoldings = await Promise.all(
+    holdings.map(async (holding) => {
+      const quote = await getQuote(holding.ticker);
+      const currentPrice = quote.price;
+      const marketValue = roundMoney(holding.shares * currentPrice);
+      const totalCost = roundMoney(holding.shares * holding.averageCost);
+      const unrealizedPL = roundMoney(marketValue - totalCost);
+      const unrealizedPLPercent = totalCost > 0 ? roundPercent((unrealizedPL / totalCost) * 100) : 0;
+
+      return {
+        ...holding,
+        companyName: holdingHasCompanyName(holding) ? holding.companyName ?? quote.name : quote.name,
+        quote,
+        currentPrice,
+        marketValue,
+        totalCost,
+        unrealizedPL,
+        unrealizedPLPercent,
+        marketDataSource: quote.isFallback ? "fallback" : "fmp"
+      };
+    })
+  );
+
+  const totalMarketValue = quotedHoldings.reduce((sum, holding) => sum + holding.marketValue, 0);
+
+  return quotedHoldings.map((holding) => ({
+    ...holding,
+    allocation: totalMarketValue > 0 ? roundPercent((holding.marketValue / totalMarketValue) * 100) : 0
+  }));
+}
+
+function holdingHasCompanyName(holding: unknown): holding is { companyName?: string | null } {
+  return typeof holding === "object" && holding !== null && "companyName" in holding;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function roundPercent(value: number) {
+  return Math.round(value * 100) / 100;
 }
 
 function prismaErrorResponse(error: unknown, fallback: string) {

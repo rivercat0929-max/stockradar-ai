@@ -38,6 +38,25 @@ Vercel:
 4. Paste the Neon PostgreSQL connection string.
 5. Enable it for Production, Preview, and Development.
 
+## Financial Modeling Prep Setup
+
+StockRadar AI can fetch real U.S. stock quotes from the Financial Modeling Prep quote API.
+
+Local `.env`:
+
+```bash
+FMP_API_KEY="YOUR_FMP_API_KEY"
+```
+
+Vercel:
+
+1. Open Project Settings.
+2. Go to Environment Variables.
+3. Add `FMP_API_KEY`.
+4. Enable it for Production, Preview, and Development.
+
+If `FMP_API_KEY` is missing or the quote request fails, the holdings API falls back to built-in sample prices for the MVP tickers.
+
 ## Prisma Commands
 
 Generate Prisma Client:
