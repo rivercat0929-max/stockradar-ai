@@ -132,7 +132,7 @@ export default function HoldingsPage() {
         <div className="grid gap-4 sm:grid-cols-3">
           <SummaryCard label={t("holdingsCount")} value={holdings.length.toLocaleString()} />
           <SummaryCard label={t("totalCostBasis")} value={`$${totalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} />
-          <SummaryCard label={t("storage")} value="SQLite" />
+          <SummaryCard label={t("storage")} value="Neon PostgreSQL" />
         </div>
       </section>
 
