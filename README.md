@@ -40,7 +40,7 @@ Vercel:
 
 ## Financial Modeling Prep Setup
 
-StockRadar AI can fetch real U.S. stock quotes from the Financial Modeling Prep quote API.
+StockRadar AI can fetch real U.S. stock quotes from the Financial Modeling Prep stable quote API.
 
 Local `.env`:
 
@@ -55,7 +55,13 @@ Vercel:
 3. Add `FMP_API_KEY`.
 4. Enable it for Production, Preview, and Development.
 
-If `FMP_API_KEY` is missing or the quote request fails, the holdings API falls back to built-in sample prices for the MVP tickers.
+The app uses the current FMP stable quote endpoint:
+
+```text
+https://financialmodelingprep.com/stable/quote?symbol=TSLA
+```
+
+If `FMP_API_KEY` is missing or the FMP stable quote request fails, the holdings API tries the Yahoo Finance unofficial chart API. If Yahoo also fails, it falls back to built-in sample prices for the MVP tickers.
 
 ## Prisma Commands
 

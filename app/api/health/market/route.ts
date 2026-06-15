@@ -1,3 +1,5 @@
+import { getFmpStableQuoteUrl, getYahooChartUrl } from "@/lib/market-data";
+
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
@@ -10,7 +12,11 @@ export async function GET() {
     hasFmpApiKey: Boolean(apiKey),
     apiKeyPrefix: apiKey ? apiKey.slice(0, 4) : null,
     testTicker,
-    fmpUrl: `https://financialmodelingprep.com/api/v3/quote/${testTicker}?apikey=[REDACTED]`,
+    fmpEndpointVersion: "stable",
+    fmpUrl: `https://financialmodelingprep.com/stable/quote?symbol=${testTicker}&apikey=[REDACTED]`,
+    fmpStatus: null as number | null,
+    yahooSuccess: false,
+    providerUsed: null as "fmp" | "yahoo" | "mock" | null,
     success: false,
     price: null as number | null,
     errorName: null as string | null,
@@ -18,54 +24,111 @@ export async function GET() {
     rawStatus: null as number | null
   };
 
-  if (!apiKey) {
-    return Response.json({
-      ...diagnostics,
-      errorName: "MissingApiKey",
-      errorMessage: "FMP_API_KEY is not configured."
-    });
+  if (apiKey) {
+    try {
+      const fmpResponse = await fetch(getFmpStableQuoteUrl(testTicker, apiKey), { cache: "no-store" });
+      const fmpStatus = fmpResponse.status;
+
+      if (fmpResponse.ok) {
+        const data = await fmpResponse.json();
+        const quote = Array.isArray(data) ? data[0] : null;
+        const price = typeof quote?.price === "number" ? quote.price : null;
+
+        if (price !== null) {
+          return Response.json({
+            ...diagnostics,
+            fmpStatus,
+            providerUsed: "fmp",
+            success: true,
+            price,
+            rawStatus: fmpStatus
+          });
+        }
+
+        return await yahooDiagnostics({
+          ...diagnostics,
+          fmpStatus,
+          errorName: "FmpInvalidResponse",
+          errorMessage: "FMP stable response did not include a numeric TSLA price.",
+          rawStatus: fmpStatus
+        });
+      }
+
+      return await yahooDiagnostics({
+        ...diagnostics,
+        fmpStatus,
+        errorName: "FmpHttpError",
+        errorMessage: `FMP stable quote request failed with status ${fmpStatus}.`,
+        rawStatus: fmpStatus
+      });
+    } catch (error) {
+      return await yahooDiagnostics({
+        ...diagnostics,
+        errorName: getErrorName(error),
+        errorMessage: sanitizeErrorMessage(getErrorMessage(error), apiKey)
+      });
+    }
   }
 
-  try {
-    const response = await fetch(
-      `https://financialmodelingprep.com/api/v3/quote/${testTicker}?apikey=${encodeURIComponent(apiKey)}`,
-      { cache: "no-store" }
-    );
-    const rawStatus = response.status;
+  return yahooDiagnostics({
+    ...diagnostics,
+    errorName: "MissingApiKey",
+    errorMessage: "FMP_API_KEY is not configured."
+  });
+}
 
-    if (!response.ok) {
+async function yahooDiagnostics(base: {
+  hasFmpApiKey: boolean;
+  apiKeyPrefix: string | null;
+  testTicker: string;
+  fmpEndpointVersion: string;
+  fmpUrl: string;
+  fmpStatus: number | null;
+  yahooSuccess: boolean;
+  providerUsed: "fmp" | "yahoo" | "mock" | null;
+  success: boolean;
+  price: number | null;
+  errorName: string | null;
+  errorMessage: string | null;
+  rawStatus: number | null;
+}) {
+  try {
+    const yahooResponse = await fetch(getYahooChartUrl(testTicker), { cache: "no-store" });
+
+    if (!yahooResponse.ok) {
       return Response.json({
-        ...diagnostics,
-        rawStatus,
-        errorName: "FmpHttpError",
-        errorMessage: `FMP quote request failed with status ${rawStatus}.`
+        ...base,
+        providerUsed: "mock",
+        errorName: base.errorName ?? "YahooHttpError",
+        errorMessage: `${base.errorMessage ?? "Yahoo chart request failed."} Yahoo status: ${yahooResponse.status}.`
       });
     }
 
-    const data = await response.json();
-    const quote = Array.isArray(data) ? data[0] : null;
-    const price = typeof quote?.price === "number" ? quote.price : null;
+    const data = await yahooResponse.json();
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
 
-    if (price === null) {
+    if (typeof price !== "number") {
       return Response.json({
-        ...diagnostics,
-        rawStatus,
-        errorName: "FmpInvalidResponse",
-        errorMessage: "FMP response did not include a numeric TSLA price."
+        ...base,
+        providerUsed: "mock",
+        errorName: base.errorName ?? "YahooInvalidResponse",
+        errorMessage: `${base.errorMessage ?? "Yahoo response did not include a numeric TSLA price."} Yahoo response did not include a numeric TSLA price.`
       });
     }
 
     return Response.json({
-      ...diagnostics,
+      ...base,
+      yahooSuccess: true,
+      providerUsed: "yahoo",
       success: true,
-      price,
-      rawStatus
+      price
     });
   } catch (error) {
     return Response.json({
-      ...diagnostics,
-      errorName: getErrorName(error),
-      errorMessage: sanitizeErrorMessage(getErrorMessage(error), apiKey)
+      ...base,
+      providerUsed: "mock",
+      errorName: base.errorName ?? getErrorName(error),
+      errorMessage: `${base.errorMessage ?? "Yahoo chart request failed."} ${getErrorMessage(error)}`
     });
   }
 }
@@ -77,7 +140,7 @@ function getErrorName(error: unknown) {
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error) return error.message;
-  return "Unknown FMP request error.";
+  return "Unknown market data request error.";
 }
 
 function sanitizeErrorMessage(message: string, apiKey: string) {

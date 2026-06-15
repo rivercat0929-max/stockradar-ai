@@ -150,7 +150,7 @@ async function enrichHoldingsWithMarketData<T extends { ticker: string; shares: 
         totalCost,
         unrealizedPL,
         unrealizedPLPercent,
-        marketDataSource: quote.isFallback ? "fallback" : "fmp"
+        marketDataSource: quote.marketDataSource
       };
     })
   );
