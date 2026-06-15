@@ -16,7 +16,7 @@ export async function GET() {
     fmpUrl: `https://financialmodelingprep.com/stable/quote?symbol=${testTicker}&apikey=[REDACTED]`,
     fmpStatus: null as number | null,
     yahooSuccess: false,
-    providerUsed: null as "fmp" | "yahoo" | "mock" | null,
+    providerUsed: null as "fmp-stable" | "yahoo" | "mock" | null,
     success: false,
     price: null as number | null,
     errorName: null as string | null,
@@ -38,7 +38,7 @@ export async function GET() {
           return Response.json({
             ...diagnostics,
             fmpStatus,
-            providerUsed: "fmp",
+            providerUsed: "fmp-stable",
             success: true,
             price,
             rawStatus: fmpStatus
@@ -85,7 +85,7 @@ async function yahooDiagnostics(base: {
   fmpUrl: string;
   fmpStatus: number | null;
   yahooSuccess: boolean;
-  providerUsed: "fmp" | "yahoo" | "mock" | null;
+  providerUsed: "fmp-stable" | "yahoo" | "mock" | null;
   success: boolean;
   price: number | null;
   errorName: string | null;
