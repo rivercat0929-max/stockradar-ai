@@ -131,7 +131,7 @@ export default function PortfolioAnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="industry" tick={{ fontSize: 12 }} />
                   <YAxis tickFormatter={(value) => `${value}%`} />
-                  <Tooltip formatter={(value, name) => (name === "allocationPercent" ? formatPercent(Number(value)) : formatCad(Number(value)))} />
+                  <Tooltip formatter={(value) => formatPercent(Number(value))} />
                   <Bar dataKey="allocationPercent" name="行业占比" fill="#2563eb" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -145,7 +145,7 @@ export default function PortfolioAnalyticsPage() {
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
                   <XAxis dataKey="scenario" tick={{ fontSize: 12 }} />
                   <YAxis tickFormatter={(value) => `${value}%`} />
-                  <Tooltip formatter={(value, name) => (name === "drawdownPercent" ? formatPercent(Number(value)) : formatCad(Number(value)))} />
+                  <Tooltip formatter={(value) => formatPercent(Number(value))} />
                   <Bar dataKey="drawdownPercent" name="预估回撤" fill="#dc2626" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
