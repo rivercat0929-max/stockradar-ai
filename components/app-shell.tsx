@@ -10,6 +10,7 @@ const navItems: { href: string; labelKey: TranslationKey }[] = [
   { href: "/", labelKey: "dashboard" },
   { href: "/holdings", labelKey: "portfolio" },
   { href: "/ai-score", labelKey: "aiScore" },
+  { href: "/alerts", labelKey: "alerts" },
   { href: "/radar", labelKey: "radar" },
   { href: "/calendar", labelKey: "calendar" },
   { href: "/backtest", labelKey: "backtest" }
