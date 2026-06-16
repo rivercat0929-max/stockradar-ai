@@ -24,6 +24,8 @@ type AiScoreSummary = {
   rating: string;
   price: number;
   changesPercentage: number;
+  assetType?: "ETF";
+  scoreMode?: "full" | "market_only";
   stale?: boolean;
 };
 
@@ -377,6 +379,8 @@ function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; erro
         <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold ${getAiRatingClass(score.score)}`}>
           {getAiRatingLabel(score.score, t)}
         </span>
+        {score.scoreMode === "market_only" ? <p className="text-xs text-slate-400">{t("marketOnlyScore")}</p> : null}
+        {score.assetType === "ETF" ? <p className="text-xs text-slate-400">{t("etfDataNotice")}</p> : null}
         {score.stale ? <p className="text-xs text-amber-200">{t("usingCachedData")}</p> : null}
       </div>
     );

@@ -21,6 +21,8 @@ type AiScoreResponse = {
   }>;
   strengths: string[];
   risks: string[];
+  assetType?: "ETF";
+  scoreMode?: "full" | "market_only";
   stale?: boolean;
 };
 
@@ -113,6 +115,7 @@ export default function AiScorePage() {
               <p className="text-sm font-medium text-muted">{result.ticker}</p>
               <h2 className="mt-2 text-4xl font-bold tracking-normal text-ink">{t("aiScore")} {result.score}/100</h2>
               <p className="mt-3 inline-flex rounded-md bg-panel px-3 py-1 text-sm font-semibold text-signal">{getLocalizedRating(result.score, t)}</p>
+              <ScoreModeNotes result={result} />
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
@@ -178,6 +181,19 @@ function InsightList({ title, items }: { title: string; items: string[] }) {
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function ScoreModeNotes({ result }: { result: AiScoreResponse }) {
+  const { t } = useLanguage();
+
+  if (result.scoreMode !== "market_only" && result.assetType !== "ETF") return null;
+
+  return (
+    <div className="mt-3 space-y-1 text-sm text-muted">
+      {result.scoreMode === "market_only" ? <p>{t("marketOnlyScore")}</p> : null}
+      {result.assetType === "ETF" ? <p>{t("etfDataNotice")}</p> : null}
     </div>
   );
 }

@@ -50,7 +50,7 @@ const fallbackNames: Record<string, string> = {
   AAPL: "Apple Inc."
 };
 
-const quoteCacheTtlMs = 5 * 60 * 1000;
+const quoteCacheTtlMs = 10 * 60 * 1000;
 
 export function getFmpStableQuoteUrl(ticker: string, apiKey: string) {
   const url = new URL("https://financialmodelingprep.com/stable/quote");

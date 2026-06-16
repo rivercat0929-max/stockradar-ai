@@ -19,6 +19,8 @@ type AlertCheckResult = {
   rating: string;
   price: number;
   changesPercentage: number;
+  assetType?: "ETF";
+  scoreMode?: "full" | "market_only";
   stale?: boolean;
 };
 
@@ -241,7 +243,17 @@ export default function AlertsPage() {
                         {result ? formatCurrency(result.price) : <span className="text-muted">-</span>}
                         {result?.stale ? <p className="text-xs text-amber-700">{t("usingCachedData")}</p> : null}
                       </td>
-                      <td className="border-b border-line px-3 py-3">{result ? `${result.score}/100` : <span className="text-muted">-</span>}</td>
+                      <td className="border-b border-line px-3 py-3">
+                        {result ? (
+                          <div>
+                            <p>{result.score}/100</p>
+                            {result.scoreMode === "market_only" ? <p className="text-xs text-muted">{t("marketOnlyScore")}</p> : null}
+                            {result.assetType === "ETF" ? <p className="text-xs text-muted">{t("etfDataNotice")}</p> : null}
+                          </div>
+                        ) : (
+                          <span className="text-muted">-</span>
+                        )}
+                      </td>
                       <td className="border-b border-line px-3 py-3">
                         {result ? (
                           <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-semibold ${isTriggered ? "border-green-300 bg-green-50 text-green-700" : "border-slate-300 bg-slate-50 text-slate-600"}`}>

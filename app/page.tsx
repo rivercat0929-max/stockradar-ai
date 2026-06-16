@@ -17,6 +17,8 @@ type AiScoreSummary = {
   rating: string;
   price: number;
   changesPercentage: number;
+  assetType?: "ETF";
+  scoreMode?: "full" | "market_only";
   stale?: boolean;
 };
 
@@ -129,6 +131,8 @@ export default function DashboardPage() {
               <ScoreBadge key={`${score.ticker}-ai-score`} score={score.score} />,
               <div key={`${score.ticker}-rating`}>
                 <p>{getLocalizedRating(score.score, t)}</p>
+                {score.scoreMode === "market_only" ? <p className="text-xs text-muted">{t("marketOnlyScore")}</p> : null}
+                {score.assetType === "ETF" ? <p className="text-xs text-muted">{t("etfDataNotice")}</p> : null}
                 {score.stale ? <p className="text-xs text-amber-700">{t("usingCachedData")}</p> : null}
               </div>,
               formatCurrency(score.price),
