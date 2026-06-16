@@ -9,6 +9,7 @@ import type { TranslationKey } from "@/lib/i18n";
 const navItems: { href: string; labelKey: TranslationKey }[] = [
   { href: "/", labelKey: "dashboard" },
   { href: "/holdings", labelKey: "portfolio" },
+  { href: "/portfolio", labelKey: "portfolioAnalytics" },
   { href: "/ai-score", labelKey: "aiScore" },
   { href: "/alerts", labelKey: "alerts" },
   { href: "/radar", labelKey: "radar" },
