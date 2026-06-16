@@ -18,6 +18,15 @@ type SavePayload = {
   notes: string | null;
 };
 
+type AiScoreSummary = {
+  ticker: string;
+  score: number;
+  rating: string;
+  price: number;
+  changesPercentage: number;
+  stale?: boolean;
+};
+
 const allAccountsId = "all";
 
 export default function HoldingsPage() {
@@ -30,11 +39,75 @@ export default function HoldingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [aiScores, setAiScores] = useState<Record<string, AiScoreSummary>>({});
+  const [aiScoreErrors, setAiScoreErrors] = useState<Record<string, string>>({});
+  const [isLoadingAiScores, setIsLoadingAiScores] = useState(false);
 
   useEffect(() => {
     loadPortfolioData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const tickers = Array.from(new Set(holdings.map((holding) => holding.ticker.trim().toUpperCase()).filter(Boolean)));
+    if (!tickers.length) {
+      setAiScores({});
+      setAiScoreErrors({});
+      setIsLoadingAiScores(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    async function loadAiScores() {
+      setIsLoadingAiScores(true);
+      try {
+        const response = await fetch(`/api/ai-score/batch?tickers=${encodeURIComponent(tickers.join(","))}`, { cache: "no-store" });
+        const data = await response.json();
+
+        if (cancelled) return;
+
+        const nextScores: Record<string, AiScoreSummary> = {};
+        const nextErrors: Record<string, string> = {};
+
+        if (Array.isArray(data.results)) {
+          data.results.forEach((score: AiScoreSummary) => {
+            nextScores[score.ticker.toUpperCase()] = score;
+          });
+        }
+
+        if (Array.isArray(data.errors)) {
+          data.errors.forEach((item: { ticker?: string | null; error?: string }) => {
+            if (item.ticker) nextErrors[item.ticker.toUpperCase()] = item.error ?? t("scoreUnavailable");
+          });
+        }
+
+        if (!response.ok && !Object.keys(nextErrors).length) {
+          tickers.forEach((ticker) => {
+            nextErrors[ticker] = data.error ?? t("scoreUnavailable");
+          });
+        }
+
+        setAiScores(nextScores);
+        setAiScoreErrors(nextErrors);
+      } catch {
+        if (!cancelled) {
+          setAiScores({});
+          setAiScoreErrors(
+            Object.fromEntries(tickers.map((ticker) => [ticker, t("scoreUnavailable")]))
+          );
+        }
+      } finally {
+        if (!cancelled) setIsLoadingAiScores(false);
+      }
+    }
+
+    loadAiScores();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [holdings, t]);
 
   const filteredHoldings = useMemo(() => {
     if (selectedAccountId === allAccountsId) return holdings;
@@ -188,11 +261,11 @@ export default function HoldingsPage() {
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{t("holdingList")}</h2>
-          {isLoading ? <span className="text-sm text-slate-400">{t("loading")}</span> : null}
+          {isLoading || isLoadingAiScores ? <span className="text-sm text-slate-400">{isLoading ? t("loading") : t("loadingAiScores")}</span> : null}
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[980px] border-separate border-spacing-0 text-left text-sm">
+          <table className="min-w-[1100px] border-separate border-spacing-0 text-left text-sm">
             <thead>
               <tr>
                 {[
@@ -206,6 +279,7 @@ export default function HoldingsPage() {
                   t("unrealizedPL"),
                   t("returnPercent"),
                   t("allocation"),
+                  t("aiScore"),
                   t("actions")
                 ].map((column) => (
                   <th key={column} className="border-b border-slate-800 bg-slate-900 px-3 py-3 font-semibold text-slate-300 first:rounded-l-md last:rounded-r-md">
@@ -217,13 +291,16 @@ export default function HoldingsPage() {
             <tbody>
               {!isLoading && filteredHoldings.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-3 py-8 text-center text-slate-400">
+                  <td colSpan={12} className="px-3 py-8 text-center text-slate-400">
                     {t("noHoldings")}
                   </td>
                 </tr>
               ) : null}
               {filteredHoldings.map((holding) => {
                 const allocation = totalMarketValue > 0 ? ((holding.marketValue ?? 0) / totalMarketValue) * 100 : 0;
+                const ticker = holding.ticker.trim().toUpperCase();
+                const aiScore = aiScores[ticker];
+                const aiScoreError = aiScoreErrors[ticker];
 
                 return (
                   <tr key={holding.id} className="hover:bg-slate-900/70">
@@ -241,6 +318,9 @@ export default function HoldingsPage() {
                       {formatPercent(holding.unrealizedPLPercent ?? 0)}
                     </td>
                     <td className="border-b border-slate-800 px-3 py-3">{formatPercent(allocation)}</td>
+                    <td className="border-b border-slate-800 px-3 py-3">
+                      <AiScoreCell score={aiScore} error={aiScoreError} isLoading={isLoadingAiScores} />
+                    </td>
                     <td className="border-b border-slate-800 px-3 py-3">
                       <div className="flex gap-3">
                         <button onClick={() => openEditForm(holding)} className="font-semibold text-blue-300 hover:text-blue-200">
@@ -287,9 +367,43 @@ function SummaryCard({ label, value, tone = "neutral" }: { label: string; value:
   );
 }
 
+function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; error?: string; isLoading: boolean }) {
+  const { t } = useLanguage();
+
+  if (score) {
+    return (
+      <div className="space-y-1">
+        <p className="font-semibold text-white">{score.score}/100</p>
+        <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold ${getAiRatingClass(score.score)}`}>
+          {getAiRatingLabel(score.score, t)}
+        </span>
+        {score.stale ? <p className="text-xs text-amber-200">{t("usingCachedData")}</p> : null}
+      </div>
+    );
+  }
+
+  if (isLoading) return <span className="text-slate-400">{t("loading")}</span>;
+  if (error) return <span className="text-slate-400">{t("scoreUnavailable")}</span>;
+  return <span className="text-slate-400">-</span>;
+}
+
 function getAccountName(accounts: PortfolioAccount[], accountId?: string) {
   if (!accountId) return "-";
   return accounts.find((account) => account.id === accountId)?.name ?? "-";
+}
+
+function getAiRatingLabel(score: number, t: ReturnType<typeof useLanguage>["t"]) {
+  if (score >= 80) return t("strongWatch");
+  if (score >= 65) return t("watch");
+  if (score >= 50) return t("neutral");
+  return t("highRisk");
+}
+
+function getAiRatingClass(score: number) {
+  if (score >= 80) return "border-green-400/50 bg-green-500/15 text-green-200";
+  if (score >= 65) return "border-blue-400/50 bg-blue-500/15 text-blue-200";
+  if (score >= 50) return "border-amber-400/50 bg-amber-500/15 text-amber-100";
+  return "border-red-400/50 bg-red-500/15 text-red-200";
 }
 
 function formatCurrency(value: number) {

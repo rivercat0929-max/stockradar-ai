@@ -1,3 +1,5 @@
+import { getCache, getStaleCache, setCache } from "@/lib/cache";
+
 export type MarketDataSource = "fmp-stable" | "yahoo" | "mock";
 
 export type Quote = {
@@ -6,6 +8,8 @@ export type Quote = {
   price: number;
   change: number;
   changesPercentage: number;
+  pe?: number | null;
+  eps?: number | null;
   marketCap: number | null;
   volume: number | null;
   dayHigh: number | null;
@@ -14,6 +18,7 @@ export type Quote = {
   yearLow: number | null;
   marketDataSource: MarketDataSource;
   isFallback: boolean;
+  stale?: boolean;
 };
 
 export type StockLookup = {
@@ -44,6 +49,8 @@ const fallbackNames: Record<string, string> = {
   META: "Meta Platforms, Inc.",
   AAPL: "Apple Inc."
 };
+
+const quoteCacheTtlMs = 5 * 60 * 1000;
 
 export function getFmpStableQuoteUrl(ticker: string, apiKey: string) {
   const url = new URL("https://financialmodelingprep.com/stable/quote");
@@ -141,21 +148,29 @@ async function getFmpStableProfile(ticker: string, apiKey: string): Promise<Stoc
   }
 }
 
-async function getFmpStableQuote(ticker: string, apiKey: string): Promise<Quote | null> {
+export async function getFmpStableQuote(ticker: string, apiKey: string): Promise<Quote | null> {
+  const cacheKey = `fmp:quote:${ticker.trim().toUpperCase()}`;
+  const cachedQuote = getCache<Quote>(cacheKey);
+  if (cachedQuote) return cachedQuote;
+
+  const staleQuote = getStaleCache<Quote>(cacheKey);
+
   try {
     const response = await fetch(getFmpStableQuoteUrl(ticker, apiKey), { cache: "no-store" });
-    if (!response.ok) return null;
+    if (!response.ok) return staleQuote ? { ...staleQuote, stale: true } : null;
 
     const data = await response.json();
     const quote = Array.isArray(data) ? data[0] : null;
-    if (!quote || typeof quote.price !== "number") return null;
+    if (!quote || typeof quote.price !== "number") return staleQuote ? { ...staleQuote, stale: true } : null;
 
-    return {
+    const result: Quote = {
       ticker: String(quote.symbol ?? ticker).toUpperCase(),
       name: String(quote.name ?? ticker),
       price: Number(quote.price),
       change: numberOrZero(quote.change),
       changesPercentage: numberOrZero(quote.changesPercentage ?? quote.changePercentage),
+      pe: nullableNumber(quote.pe),
+      eps: nullableNumber(quote.eps),
       marketCap: nullableNumber(quote.marketCap),
       volume: nullableNumber(quote.volume),
       dayHigh: nullableNumber(quote.dayHigh),
@@ -165,8 +180,11 @@ async function getFmpStableQuote(ticker: string, apiKey: string): Promise<Quote 
       marketDataSource: "fmp-stable",
       isFallback: false
     };
+
+    setCache(cacheKey, result, quoteCacheTtlMs);
+    return result;
   } catch {
-    return null;
+    return staleQuote ? { ...staleQuote, stale: true } : null;
   }
 }
 
@@ -214,6 +232,8 @@ function mockQuote(ticker: string): Quote {
     price,
     change: 0,
     changesPercentage: 0,
+    pe: null,
+    eps: null,
     marketCap: null,
     volume: null,
     dayHigh: null,

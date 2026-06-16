@@ -1,18 +1,83 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { BriefingPanel } from "@/components/briefing-panel";
 import { DataTable } from "@/components/data-table";
 import { useLanguage } from "@/components/language-provider";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { ScoreBadge } from "@/components/score-badge";
-import { alerts, dailyBriefing, holdings, marketStatus, stocks } from "@/lib/mock-data";
+import { alerts, dailyBriefing, holdings as mockHoldings, marketStatus, stocks } from "@/lib/mock-data";
 import { getPortfolioSummary } from "@/lib/portfolio";
+import type { Holding } from "@/lib/types";
+
+type AiScoreSummary = {
+  ticker: string;
+  score: number;
+  rating: string;
+  price: number;
+  changesPercentage: number;
+  stale?: boolean;
+};
 
 export default function DashboardPage() {
   const { t } = useLanguage();
-  const summary = getPortfolioSummary(holdings);
+  const [aiRadarScores, setAiRadarScores] = useState<AiScoreSummary[]>([]);
+  const [aiRadarError, setAiRadarError] = useState<string | null>(null);
+  const [isAiRadarLoading, setIsAiRadarLoading] = useState(true);
+  const summary = getPortfolioSummary(mockHoldings);
   const opportunities = stocks.filter((stock) => stock.score.totalScore >= 76).slice(0, 4);
+  const topAiRadarScores = useMemo(() => [...aiRadarScores].sort((a, b) => b.score - a.score).slice(0, 3), [aiRadarScores]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAiRadarSummary() {
+      setIsAiRadarLoading(true);
+      setAiRadarError(null);
+
+      try {
+        const holdingsResponse = await fetch("/api/holdings", { cache: "no-store" });
+        const holdingsData = await holdingsResponse.json();
+
+        if (!holdingsResponse.ok) throw new Error(holdingsData.error ?? t("loadHoldingsError"));
+
+        const tickers = Array.from(
+          new Set((holdingsData as Holding[]).map((holding) => holding.ticker.trim().toUpperCase()).filter(Boolean))
+        );
+
+        if (!tickers.length) {
+          if (!cancelled) setAiRadarScores([]);
+          return;
+        }
+
+        const scoreResponse = await fetch(`/api/ai-score/batch?tickers=${encodeURIComponent(tickers.join(","))}`, { cache: "no-store" });
+        const scoreData = await scoreResponse.json();
+
+        if (cancelled) return;
+
+        setAiRadarScores(Array.isArray(scoreData.results) ? scoreData.results : []);
+        if (Array.isArray(scoreData.errors) && scoreData.errors.length) {
+          setAiRadarError(t("someAiScoresUnavailable"));
+        } else if (!scoreResponse.ok) {
+          setAiRadarError(t("aiScoresTemporarilyUnavailable"));
+        }
+      } catch {
+        if (!cancelled) {
+          setAiRadarScores([]);
+          setAiRadarError(t("aiRadarUnavailable"));
+        }
+      } finally {
+        if (!cancelled) setIsAiRadarLoading(false);
+      }
+    }
+
+    loadAiRadarSummary();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [t]);
 
   return (
     <div className="space-y-6">
@@ -44,6 +109,38 @@ export default function DashboardPage() {
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">{t("aiRadarSummary")}</h2>
+            <p className="mt-1 text-sm text-muted">{t("aiRadarSummaryDescription")}</p>
+          </div>
+          {isAiRadarLoading ? <span className="text-sm text-muted">{t("loadingAiScores")}</span> : null}
+        </div>
+
+        {aiRadarError ? <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{aiRadarError}</p> : null}
+
+        {!isAiRadarLoading && topAiRadarScores.length === 0 ? (
+          <p className="rounded-md border border-line bg-panel px-3 py-4 text-sm text-muted">{t("noAiScoresAvailable")}</p>
+        ) : (
+          <DataTable
+            columns={[t("ticker"), t("score"), t("rating"), t("currentPrice"), t("changePercent")]}
+            rows={topAiRadarScores.map((score) => [
+              score.ticker,
+              <ScoreBadge key={`${score.ticker}-ai-score`} score={score.score} />,
+              <div key={`${score.ticker}-rating`}>
+                <p>{getLocalizedRating(score.score, t)}</p>
+                {score.stale ? <p className="text-xs text-amber-700">{t("usingCachedData")}</p> : null}
+              </div>,
+              formatCurrency(score.price),
+              <span key={`${score.ticker}-change`} className={score.changesPercentage >= 0 ? "text-green-600" : "text-red-600"}>
+                {formatPercent(score.changesPercentage)}
+              </span>
+            ])}
+          />
+        )}
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-4">
           <h2 className="text-lg font-semibold">{t("todayOpportunities")}</h2>
           <span className="text-sm text-muted">{t("basedOnMockScoring")}</span>
@@ -61,4 +158,19 @@ export default function DashboardPage() {
       </section>
     </div>
   );
+}
+
+function formatCurrency(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+}
+
+function formatPercent(value: number) {
+  return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function getLocalizedRating(score: number, t: ReturnType<typeof useLanguage>["t"]) {
+  if (score >= 80) return t("strongWatch");
+  if (score >= 65) return t("watch");
+  if (score >= 50) return t("neutral");
+  return t("highRisk");
 }
