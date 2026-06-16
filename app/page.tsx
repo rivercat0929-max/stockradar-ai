@@ -2,7 +2,6 @@
 
 import { BriefingPanel } from "@/components/briefing-panel";
 import { DataTable } from "@/components/data-table";
-import { Disclaimer } from "@/components/disclaimer";
 import { useLanguage } from "@/components/language-provider";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -60,8 +59,6 @@ export default function DashboardPage() {
           ])}
         />
       </section>
-
-      <Disclaimer />
     </div>
   );
 }

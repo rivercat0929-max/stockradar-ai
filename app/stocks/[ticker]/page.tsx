@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { BacktestSummary } from "@/components/backtest-summary";
-import { Disclaimer } from "@/components/disclaimer";
 import { useLanguage } from "@/components/language-provider";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
@@ -48,8 +47,6 @@ export default function StockDetailPage({ params }: { params: { ticker: string }
         </div>
         {backtest ? <BacktestSummary result={backtest} /> : null}
       </section>
-
-      <Disclaimer emphasized />
     </div>
   );
 }

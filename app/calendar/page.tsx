@@ -1,7 +1,6 @@
 "use client";
 
 import { DataTable } from "@/components/data-table";
-import { Disclaimer } from "@/components/disclaimer";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
 import { events } from "@/lib/mock-data";
@@ -26,8 +25,6 @@ export default function CalendarPage() {
           ])}
         />
       </section>
-
-      <Disclaimer />
     </div>
   );
 }

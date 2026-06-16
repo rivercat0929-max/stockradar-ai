@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Disclaimer } from "@/components/disclaimer";
 import { HoldingForm, type HoldingFormValues } from "@/components/holding-form";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
@@ -259,8 +258,6 @@ export default function HoldingsPage() {
           </table>
         </div>
       </section>
-
-      <Disclaimer />
     </div>
   );
 }

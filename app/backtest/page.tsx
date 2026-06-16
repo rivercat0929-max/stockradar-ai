@@ -2,7 +2,6 @@
 
 import { BacktestSummary } from "@/components/backtest-summary";
 import { DataTable } from "@/components/data-table";
-import { Disclaimer } from "@/components/disclaimer";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
 import { backtests } from "@/lib/mock-data";
@@ -33,8 +32,6 @@ export default function BacktestPage() {
           />
         </div>
       </section>
-
-      <Disclaimer />
     </div>
   );
 }
