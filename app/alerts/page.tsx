@@ -67,6 +67,9 @@ export default function AlertsPage() {
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [riskFilter, setRiskFilter] = useState("all");
   const [tickerFilter, setTickerFilter] = useState("");
+  const [draftCategoryFilter, setDraftCategoryFilter] = useState("all");
+  const [draftRiskFilter, setDraftRiskFilter] = useState("all");
+  const [draftTickerFilter, setDraftTickerFilter] = useState("");
   const tickers = useMemo(() => Array.from(new Set(alerts.map((alert) => alert.ticker))), [alerts]);
   const filteredAdvancedAlerts = useMemo(() => {
     const normalizedTickerFilter = tickerFilter.trim().toUpperCase();
@@ -205,6 +208,22 @@ export default function AlertsPage() {
     setAlerts((current) => current.filter((alert) => alert.id !== id));
   }
 
+  function applyAdvancedFilters(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setCategoryFilter(draftCategoryFilter);
+    setRiskFilter(draftRiskFilter);
+    setTickerFilter(draftTickerFilter.trim().toUpperCase());
+  }
+
+  function resetAdvancedFilters() {
+    setDraftCategoryFilter("all");
+    setDraftRiskFilter("all");
+    setDraftTickerFilter("");
+    setCategoryFilter("all");
+    setRiskFilter("all");
+    setTickerFilter("");
+  }
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -245,11 +264,14 @@ export default function AlertsPage() {
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <h2 className="text-lg font-semibold">筛选预警</h2>
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">筛选预警</h2>
+          <p className="text-sm text-muted">当前显示 {filteredAdvancedAlerts.length} 条</p>
+        </div>
+        <form onSubmit={applyAdvancedFilters} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto_auto] md:items-end">
           <label className="text-sm">
             <span className="font-medium text-ink">预警类型</span>
-            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
+            <select value={draftCategoryFilter} onChange={(event) => setDraftCategoryFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
               <option value="all">全部类型</option>
               <option value="technical">技术突破</option>
               <option value="volume">异常成交量</option>
@@ -260,7 +282,7 @@ export default function AlertsPage() {
           </label>
           <label className="text-sm">
             <span className="font-medium text-ink">风险等级</span>
-            <select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
+            <select value={draftRiskFilter} onChange={(event) => setDraftRiskFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
               <option value="all">全部等级</option>
               <option value="high">高风险</option>
               <option value="medium">中风险</option>
@@ -269,9 +291,15 @@ export default function AlertsPage() {
           </label>
           <label className="text-sm">
             <span className="font-medium text-ink">股票代码</span>
-            <input value={tickerFilter} onChange={(event) => setTickerFilter(event.target.value.toUpperCase())} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal" placeholder="TSLA" />
+            <input value={draftTickerFilter} onChange={(event) => setDraftTickerFilter(event.target.value.toUpperCase())} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal" placeholder="TSLA" />
           </label>
-        </div>
+          <button type="submit" className="rounded-md bg-signal px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600">
+            应用筛选
+          </button>
+          <button type="button" onClick={resetAdvancedFilters} className="rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-muted hover:border-slate-400 hover:text-ink">
+            重置
+          </button>
+        </form>
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
