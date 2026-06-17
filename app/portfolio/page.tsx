@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import type { TooltipProps } from "recharts";
+import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { PageHeader } from "@/components/page-header";
 
 type PortfolioAnalytics = {
@@ -124,7 +126,7 @@ export default function PortfolioAnalyticsPage() {
                       <Cell key={holding.id} fill={chartColors[index % chartColors.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => formatCad(Number(value))} labelFormatter={(label) => getHoldingTooltipLabel(data.holdings, String(label))} />
+                  <Tooltip content={<HoldingTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
             </ChartPanel>
@@ -238,11 +240,6 @@ function formatCad(value: number) {
   }).format(value);
 }
 
-function getHoldingTooltipLabel(holdings: PortfolioAnalytics["holdings"], id: string) {
-  const holding = holdings.find((item) => item.id === id);
-  return holding ? `${holding.ticker} / ${holding.accountName}` : id;
-}
-
 function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
@@ -252,4 +249,18 @@ function formatNumber(value: number, digits: number) {
     minimumFractionDigits: digits,
     maximumFractionDigits: digits
   }).format(value);
+}
+
+function HoldingTooltip({ active, payload }: TooltipProps<ValueType, NameType>) {
+  if (!active || !payload?.length) return null;
+
+  const holding = payload[0].payload as PortfolioAnalytics["holdings"][number];
+
+  return (
+    <div className="rounded-md border border-line bg-white px-3 py-2 text-sm shadow-soft">
+      <p className="font-semibold text-ink">{holding.ticker} / {holding.accountName}</p>
+      <p className="text-signal">市值：{formatCad(holding.marketValue)}</p>
+      <p className="text-muted">仓位：{formatPercent(holding.allocationPercent)}</p>
+    </div>
+  );
 }
