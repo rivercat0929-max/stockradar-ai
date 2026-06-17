@@ -24,6 +24,30 @@ type AlertCheckResult = {
   stale?: boolean;
 };
 
+type AdvancedAlert = {
+  id: string;
+  ticker: string;
+  category: "technical" | "volume" | "rsi" | "holding" | "earnings";
+  riskLevel: "high" | "medium" | "low";
+  title: string;
+  message: string;
+  valueLabel: string;
+  source: "real" | "fallback" | "mock";
+  createdAt: string;
+};
+
+type AlertsV2Data = {
+  todayHighlights: AdvancedAlert[];
+  holdingAlerts: AdvancedAlert[];
+  history: AdvancedAlert[];
+  errors: Array<{ ticker: string; error: string }>;
+  dataSources: {
+    real: string[];
+    fallback: string[];
+    mock: string[];
+  };
+};
+
 const storageKey = "stockradar-alerts-v1";
 
 export default function AlertsPage() {
@@ -37,7 +61,22 @@ export default function AlertsPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [hasLoadedLocalAlerts, setHasLoadedLocalAlerts] = useState(false);
+  const [advancedAlerts, setAdvancedAlerts] = useState<AlertsV2Data | null>(null);
+  const [isLoadingAdvancedAlerts, setIsLoadingAdvancedAlerts] = useState(false);
+  const [advancedMessage, setAdvancedMessage] = useState<string | null>(null);
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [riskFilter, setRiskFilter] = useState("all");
+  const [tickerFilter, setTickerFilter] = useState("");
   const tickers = useMemo(() => Array.from(new Set(alerts.map((alert) => alert.ticker))), [alerts]);
+  const filteredAdvancedAlerts = useMemo(() => {
+    const normalizedTickerFilter = tickerFilter.trim().toUpperCase();
+    return (advancedAlerts?.history ?? []).filter((alert) => {
+      const categoryMatched = categoryFilter === "all" || alert.category === categoryFilter;
+      const riskMatched = riskFilter === "all" || alert.riskLevel === riskFilter;
+      const tickerMatched = !normalizedTickerFilter || alert.ticker.includes(normalizedTickerFilter);
+      return categoryMatched && riskMatched && tickerMatched;
+    });
+  }, [advancedAlerts, categoryFilter, riskFilter, tickerFilter]);
 
   useEffect(() => {
     try {
@@ -68,6 +107,28 @@ export default function AlertsPage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tickers.join(",")]);
+
+  useEffect(() => {
+    loadAdvancedAlerts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tickers.join(",")]);
+
+  async function loadAdvancedAlerts() {
+    setIsLoadingAdvancedAlerts(true);
+    setAdvancedMessage(null);
+
+    try {
+      const response = await fetch(`/api/alerts?tickers=${encodeURIComponent(tickers.join(","))}`, { cache: "no-store" });
+      const data = await response.json();
+      setAdvancedAlerts(data);
+      if (Array.isArray(data.errors) && data.errors.length) setAdvancedMessage("部分数据源暂时不可用，已使用 fallback/mock 数据继续生成预警。");
+    } catch {
+      setAdvancedAlerts(null);
+      setAdvancedMessage("高级预警暂时不可用，请稍后再试。");
+    } finally {
+      setIsLoadingAdvancedAlerts(false);
+    }
+  }
 
   async function refreshAlerts(nextTickers = tickers) {
     if (!nextTickers.length) return;
@@ -148,21 +209,102 @@ export default function AlertsPage() {
     <div className="space-y-6">
       <PageHeader
         title={t("alerts")}
-        eyebrow="Radar Alerts V1"
-        description={t("alertsDescription")}
+        eyebrow="Radar Alerts V2"
+        description="高级股票雷达：技术突破、异常成交量、RSI、持仓风险和财报提醒。"
         action={
           <button
             type="button"
-            onClick={() => refreshAlerts()}
-            disabled={isLoading || tickers.length === 0}
+            onClick={() => {
+              refreshAlerts();
+              loadAdvancedAlerts();
+            }}
+            disabled={isLoading || isLoadingAdvancedAlerts}
             className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? t("loading") : t("refresh")}
+            {isLoading || isLoadingAdvancedAlerts ? "加载中..." : "刷新雷达"}
           </button>
         }
       />
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">今日重点预警</h2>
+            <p className="mt-1 text-sm text-muted">优先展示高风险技术、持仓和成交量信号。</p>
+          </div>
+          {isLoadingAdvancedAlerts ? <span className="text-sm text-muted">正在扫描...</span> : null}
+        </div>
+        {advancedMessage ? <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{advancedMessage}</p> : null}
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {(advancedAlerts?.todayHighlights ?? []).length ? (
+            advancedAlerts!.todayHighlights.map((alert) => <AdvancedAlertCard key={alert.id} alert={alert} />)
+          ) : (
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2 xl:col-span-3">暂无高风险重点预警。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <h2 className="text-lg font-semibold">筛选预警</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <label className="text-sm">
+            <span className="font-medium text-ink">预警类型</span>
+            <select value={categoryFilter} onChange={(event) => setCategoryFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
+              <option value="all">全部类型</option>
+              <option value="technical">技术突破</option>
+              <option value="volume">异常成交量</option>
+              <option value="rsi">RSI</option>
+              <option value="holding">持仓相关</option>
+              <option value="earnings">财报</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-ink">风险等级</span>
+            <select value={riskFilter} onChange={(event) => setRiskFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
+              <option value="all">全部等级</option>
+              <option value="high">高风险</option>
+              <option value="medium">中风险</option>
+              <option value="low">低风险</option>
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="font-medium text-ink">股票代码</span>
+            <input value={tickerFilter} onChange={(event) => setTickerFilter(event.target.value.toUpperCase())} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal" placeholder="TSLA" />
+          </label>
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <h2 className="text-lg font-semibold">持仓相关预警专区</h2>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {(advancedAlerts?.holdingAlerts ?? []).length ? (
+            advancedAlerts!.holdingAlerts.map((alert) => <AdvancedAlertCard key={alert.id} alert={alert} />)
+          ) : (
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2">暂无持仓相关预警。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">历史预警列表</h2>
+          {advancedAlerts ? (
+            <p className="text-xs text-muted">
+              真实：{advancedAlerts.dataSources.real.length} / Fallback：{advancedAlerts.dataSources.fallback.length} / Mock：{advancedAlerts.dataSources.mock.length}
+            </p>
+          ) : null}
+        </div>
+        <div className="grid gap-3">
+          {filteredAdvancedAlerts.length ? (
+            filteredAdvancedAlerts.map((alert) => <AdvancedAlertRow key={alert.id} alert={alert} />)
+          ) : (
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted">没有符合筛选条件的预警。</p>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <h2 className="mb-4 text-lg font-semibold">自定义价格 / AI 评分预警</h2>
         <form onSubmit={addAlert} className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
           <label className="text-sm">
             <span className="font-medium text-ink">{t("ticker")}</span>
@@ -318,4 +460,69 @@ function formatCurrency(value: number) {
 
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+function AdvancedAlertCard({ alert }: { alert: AdvancedAlert }) {
+  return (
+    <div className={`rounded-lg border p-4 ${getRiskCardClass(alert.riskLevel)}`}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-muted">{getCategoryLabel(alert.category)} / {getSourceLabel(alert.source)}</p>
+          <h3 className="mt-1 font-semibold text-ink">{alert.ticker} - {alert.title}</h3>
+        </div>
+        <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getRiskBadgeClass(alert.riskLevel)}`}>{getRiskLabel(alert.riskLevel)}</span>
+      </div>
+      <p className="mt-3 text-sm text-muted">{alert.message}</p>
+      <p className="mt-2 text-sm font-semibold text-signal">{alert.valueLabel}</p>
+    </div>
+  );
+}
+
+function AdvancedAlertRow({ alert }: { alert: AdvancedAlert }) {
+  return (
+    <div className="grid gap-2 rounded-md border border-line bg-panel px-3 py-3 text-sm md:grid-cols-[120px_120px_1fr_120px] md:items-center">
+      <div>
+        <p className="font-semibold text-ink">{alert.ticker}</p>
+        <p className="text-xs text-muted">{getCategoryLabel(alert.category)}</p>
+      </div>
+      <span className={`w-fit rounded-md px-2 py-1 text-xs font-semibold ${getRiskBadgeClass(alert.riskLevel)}`}>{getRiskLabel(alert.riskLevel)}</span>
+      <div>
+        <p className="font-medium">{alert.title}</p>
+        <p className="text-muted">{alert.message}</p>
+      </div>
+      <p className="font-semibold text-signal">{alert.valueLabel}</p>
+    </div>
+  );
+}
+
+function getCategoryLabel(category: AdvancedAlert["category"]) {
+  if (category === "technical") return "技术突破";
+  if (category === "volume") return "异常成交量";
+  if (category === "rsi") return "RSI";
+  if (category === "holding") return "持仓相关";
+  return "财报";
+}
+
+function getRiskLabel(riskLevel: AdvancedAlert["riskLevel"]) {
+  if (riskLevel === "high") return "高风险";
+  if (riskLevel === "medium") return "中风险";
+  return "低风险";
+}
+
+function getSourceLabel(source: AdvancedAlert["source"]) {
+  if (source === "real") return "真实数据";
+  if (source === "fallback") return "Fallback";
+  return "Mock";
+}
+
+function getRiskBadgeClass(riskLevel: AdvancedAlert["riskLevel"]) {
+  if (riskLevel === "high") return "bg-red-100 text-red-700";
+  if (riskLevel === "medium") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-600";
+}
+
+function getRiskCardClass(riskLevel: AdvancedAlert["riskLevel"]) {
+  if (riskLevel === "high") return "border-red-200 bg-red-50";
+  if (riskLevel === "medium") return "border-amber-200 bg-amber-50";
+  return "border-line bg-panel";
 }
