@@ -1,8 +1,10 @@
 import type { Holding } from "@/lib/types";
 
 export type PortfolioHoldingAnalysis = {
+  id: string;
   ticker: string;
   companyName: string;
+  accountName: string;
   industry: string;
   shares: number;
   currentPrice: number;
@@ -119,14 +121,17 @@ export function getPortfolioSummary(holdings: Holding[]) {
 
 export function analyzePortfolio(holdings: Holding[]): PortfolioAnalytics {
   const analyzedHoldings = holdings
-    .map((holding) => {
+    .map((holding, index) => {
       const ticker = holding.ticker.trim().toUpperCase();
       const currentPrice = holding.currentPrice ?? holding.averageCost ?? 0;
       const marketValue = holding.marketValue ?? holding.shares * currentPrice;
+      const accountName = holding.account?.name ?? "未分配账户";
 
       return {
+        id: `${holding.id ?? ticker}-${holding.accountId ?? accountName}-${index}`,
         ticker,
         companyName: holding.companyName ?? ticker,
+        accountName,
         industry: getIndustry(ticker),
         shares: holding.shares,
         currentPrice,

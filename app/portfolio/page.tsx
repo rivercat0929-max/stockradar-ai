@@ -7,8 +7,10 @@ import { PageHeader } from "@/components/page-header";
 type PortfolioAnalytics = {
   totalAssets: number;
   holdings: Array<{
+    id: string;
     ticker: string;
     companyName: string;
+    accountName: string;
     industry: string;
     shares: number;
     currentPrice: number;
@@ -24,8 +26,10 @@ type PortfolioAnalytics = {
   topThreeAllocationPercent: number;
   hhi: number;
   largestHolding: {
+    id: string;
     ticker: string;
     companyName: string;
+    accountName: string;
     industry: string;
     marketValue: number;
     allocationPercent: number;
@@ -95,7 +99,7 @@ export default function PortfolioAnalyticsPage() {
             <MetricCard
               label="最大持仓"
               value={data.largestHolding ? data.largestHolding.ticker : "-"}
-              detail={data.largestHolding ? `${formatPercent(data.largestHolding.allocationPercent)} / ${data.largestHoldingRisk}` : "暂无持仓"}
+              detail={data.largestHolding ? `${data.largestHolding.accountName} / ${formatPercent(data.largestHolding.allocationPercent)} / ${data.largestHoldingRisk}` : "暂无持仓"}
             />
             <MetricCard label="行业分布" value={`${data.industries.length} 类`} detail={`科技占比 ${formatPercent(data.technologyAllocationPercent)}`} />
           </section>
@@ -115,12 +119,12 @@ export default function PortfolioAnalyticsPage() {
             <ChartPanel title="仓位分布">
               <ResponsiveContainer width="100%" height={300}>
                 <PieChart>
-                  <Pie data={data.holdings} dataKey="marketValue" nameKey="ticker" outerRadius={105} label={(item) => `${item.ticker} ${formatPercent(item.allocationPercent)}`}>
+                  <Pie data={data.holdings} dataKey="marketValue" nameKey="id" outerRadius={105} label={(item) => `${item.ticker} / ${item.accountName} ${formatPercent(item.allocationPercent)}`}>
                     {data.holdings.map((holding, index) => (
-                      <Cell key={holding.ticker} fill={chartColors[index % chartColors.length]} />
+                      <Cell key={holding.id} fill={chartColors[index % chartColors.length]} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(value) => formatCad(Number(value))} />
+                  <Tooltip formatter={(value) => formatCad(Number(value))} labelFormatter={(label) => getHoldingTooltipLabel(data.holdings, String(label))} />
                 </PieChart>
               </ResponsiveContainer>
             </ChartPanel>
@@ -169,7 +173,7 @@ export default function PortfolioAnalyticsPage() {
               <table className="min-w-[900px] border-separate border-spacing-0 text-left text-sm">
                 <thead>
                   <tr>
-                    {["股票", "行业", "市值", "仓位", "价格", "Beta"].map((column) => (
+                    {["股票", "账户", "行业", "市值", "仓位", "价格", "Beta"].map((column) => (
                       <th key={column} className="border-b border-line bg-panel px-3 py-3 font-semibold text-muted first:rounded-l-md last:rounded-r-md">
                         {column}
                       </th>
@@ -178,8 +182,9 @@ export default function PortfolioAnalyticsPage() {
                 </thead>
                 <tbody>
                   {data.holdings.map((holding) => (
-                    <tr key={holding.ticker} className="hover:bg-panel/70">
+                    <tr key={holding.id} className="hover:bg-panel/70">
                       <td className="border-b border-line px-3 py-3 font-semibold">{holding.ticker}</td>
+                      <td className="border-b border-line px-3 py-3 text-muted">{holding.accountName}</td>
                       <td className="border-b border-line px-3 py-3 text-muted">{holding.industry}</td>
                       <td className="border-b border-line px-3 py-3">{formatCad(holding.marketValue)}</td>
                       <td className="border-b border-line px-3 py-3">{formatPercent(holding.allocationPercent)}</td>
@@ -231,6 +236,11 @@ function formatCad(value: number) {
     currency: "CAD",
     maximumFractionDigits: 2
   }).format(value);
+}
+
+function getHoldingTooltipLabel(holdings: PortfolioAnalytics["holdings"], id: string) {
+  const holding = holdings.find((item) => item.id === id);
+  return holding ? `${holding.ticker} / ${holding.accountName}` : id;
 }
 
 function formatPercent(value: number) {
