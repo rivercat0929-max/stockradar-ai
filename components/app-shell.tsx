@@ -14,6 +14,7 @@ const navItems: { href: string; labelKey: TranslationKey }[] = [
   { href: "/alerts", labelKey: "alerts" },
   { href: "/radar", labelKey: "radar" },
   { href: "/calendar", labelKey: "calendar" },
+  { href: "/daily-report", labelKey: "dailyReport" },
   { href: "/backtest", labelKey: "backtest" }
 ];
 
