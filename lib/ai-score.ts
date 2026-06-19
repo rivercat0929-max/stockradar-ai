@@ -1,10 +1,25 @@
 import { getCache, getStaleCache, setCache } from "@/lib/cache";
-import { getFmpStableQuote } from "@/lib/market-data";
+import { getQuote, type Quote } from "@/lib/market-data";
+
+export type AiScoreDataSource = "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+export type AiScoreDimensionKey = "trend" | "growth" | "valuation" | "quality" | "sentiment" | "risk";
+export type AiScoreMode = "full" | "market_only" | "estimated";
 
 export type AiScoreBreakdownItem = {
   name: string;
   score: number;
   max: number;
+  reason: string;
+  source: AiScoreDataSource;
+};
+
+export type AiScoreDimension = {
+  key: AiScoreDimensionKey;
+  name: string;
+  score: number;
+  weight: number;
+  weightedScore: number;
+  source: AiScoreDataSource;
   reason: string;
 };
 
@@ -17,19 +32,29 @@ export type AiScoreResult = {
   changesPercentage: number;
   score: number;
   rating: string;
+  ratingLabel: string;
+  dimensions: AiScoreDimension[];
+  dimensionScores: Record<AiScoreDimensionKey, number>;
   breakdown: AiScoreBreakdownItem[];
   strengths: string[];
   risks: string[];
+  investorProfile: string;
+  aiSummary: string;
+  dataSource: AiScoreDataSource;
+  dataSourceDetails: string[];
   assetType?: "ETF";
-  scoreMode?: "full" | "market_only";
+  scoreMode?: AiScoreMode;
   stale?: boolean;
 };
 
-export type AiScoreSummary = Pick<AiScoreResult, "ticker" | "score" | "rating" | "price" | "changesPercentage" | "assetType" | "scoreMode" | "stale">;
+export type AiScoreSummary = Pick<
+  AiScoreResult,
+  "ticker" | "score" | "rating" | "ratingLabel" | "price" | "changesPercentage" | "assetType" | "scoreMode" | "stale" | "dataSource"
+>;
 
 const scoreCacheTtlMs = 10 * 60 * 1000;
 
-export async function getAiScore(ticker: string, apiKey: string): Promise<AiScoreResult> {
+export async function getAiScore(ticker: string, _apiKey?: string): Promise<AiScoreResult> {
   const normalizedTicker = ticker.trim().toUpperCase();
   const cacheKey = getAiScoreCacheKey(normalizedTicker);
   const cachedScore = getCache<AiScoreResult>(cacheKey);
@@ -38,45 +63,12 @@ export async function getAiScore(ticker: string, apiKey: string): Promise<AiScor
   const staleScore = getStaleCache<AiScoreResult>(cacheKey);
 
   try {
-    const quote = await getFmpStableQuote(normalizedTicker, apiKey);
-    if (!quote) {
-      throw new Error(`No quote data was found for ${normalizedTicker}. Please check the ticker and try again.`);
-    }
-
-    const price = quote.price;
-    const pe = nullableNumber(quote.pe);
-    const eps = nullableNumber(quote.eps);
-    const marketCap = nullableNumber(quote.marketCap);
-    const changesPercentage = numberOrZero(quote.changesPercentage);
-    const returnedTicker = quote.ticker;
-
-    if (price === null) {
-      throw new Error(`FMP did not return a valid current price for ${normalizedTicker}.`);
-    }
-
-    const scoreResult = getScoreResult({ changesPercentage, pe, eps, marketCap });
-
-    const result = {
-      ticker: returnedTicker,
-      price,
-      pe,
-      eps,
-      marketCap,
-      changesPercentage,
-      score: scoreResult.score,
-      rating: getRating(scoreResult.score),
-      breakdown: scoreResult.breakdown,
-      strengths: getStrengths({ score: scoreResult.score, changesPercentage, pe, eps, marketCap, scoreMode: scoreResult.scoreMode }),
-      risks: getRisks({ changesPercentage, pe, eps, marketCap, scoreMode: scoreResult.scoreMode }),
-      assetType: "assetType" in scoreResult ? scoreResult.assetType : undefined,
-      scoreMode: scoreResult.scoreMode,
-      stale: quote.stale
-    };
-
+    const quote = await getQuote(normalizedTicker);
+    const result = buildAiScoreFromQuote(quote);
     if (!result.stale) setCache(cacheKey, result, scoreCacheTtlMs);
     return result;
   } catch (error) {
-    if (staleScore) return { ...staleScore, stale: true };
+    if (staleScore) return { ...staleScore, stale: true, dataSource: "缓存数据" };
     throw error;
   }
 }
@@ -87,7 +79,7 @@ export function getCachedAiScore(ticker: string): AiScoreResult | null {
   if (cachedScore) return cachedScore;
 
   const staleScore = getStaleCache<AiScoreResult>(getAiScoreCacheKey(normalizedTicker));
-  return staleScore ? { ...staleScore, stale: true } : null;
+  return staleScore ? { ...staleScore, stale: true, dataSource: "缓存数据" } : null;
 }
 
 export function toAiScoreSummary(result: AiScoreResult): AiScoreSummary {
@@ -95,192 +87,350 @@ export function toAiScoreSummary(result: AiScoreResult): AiScoreSummary {
     ticker: result.ticker,
     score: result.score,
     rating: result.rating,
+    ratingLabel: result.ratingLabel,
     price: result.price,
     changesPercentage: result.changesPercentage,
     assetType: result.assetType,
     scoreMode: result.scoreMode,
-    stale: result.stale
+    stale: result.stale,
+    dataSource: result.dataSource
   };
 }
 
-function getAiScoreCacheKey(ticker: string) {
-  return `ai-score:${ticker.trim().toUpperCase()}`;
+function buildAiScoreFromQuote(quote: Quote): AiScoreResult {
+  const price = numberOrZero(quote.price);
+  const changesPercentage = numberOrZero(quote.changesPercentage);
+  const pe = nullableNumber(quote.pe);
+  const eps = nullableNumber(quote.eps);
+  const marketCap = nullableNumber(quote.marketCap);
+  const isMarketOnly = pe === null && eps === null;
+  const baseSource = getQuoteSource(quote);
+  const dimensions = scoreDimensions({ quote, price, changesPercentage, pe, eps, marketCap, baseSource, isMarketOnly });
+  const score = Math.round(dimensions.reduce((sum, item) => sum + item.weightedScore, 0));
+  const rating = getRating(score);
+  const ratingLabel = getRatingLabel(rating);
+  const scoreMode: AiScoreMode = isMarketOnly ? "market_only" : dimensions.some((item) => item.source === "估算数据") ? "estimated" : "full";
+  const result: AiScoreResult = {
+    ticker: quote.ticker,
+    price,
+    pe,
+    eps,
+    marketCap,
+    changesPercentage,
+    score,
+    rating,
+    ratingLabel,
+    dimensions,
+    dimensionScores: Object.fromEntries(dimensions.map((item) => [item.key, item.score])) as Record<AiScoreDimensionKey, number>,
+    breakdown: dimensions.map(toBreakdownItem),
+    strengths: getStrengths({ score, dimensions, pe, eps, marketCap, changesPercentage, scoreMode }),
+    risks: getRisks({ dimensions, pe, eps, marketCap, changesPercentage, scoreMode, quote }),
+    investorProfile: getInvestorProfile({ score, changesPercentage, marketCap, scoreMode }),
+    aiSummary: getAiSummary({ ticker: quote.ticker, score, ratingLabel, dimensions, changesPercentage, scoreMode, baseSource }),
+    dataSource: getOverallSource(dimensions, baseSource),
+    dataSourceDetails: getDataSourceDetails(quote, dimensions, isMarketOnly),
+    assetType: isMarketOnly ? ("ETF" as const) : undefined,
+    scoreMode,
+    stale: quote.stale
+  };
+
+  return result;
 }
 
-function getScoreResult(input: {
-  changesPercentage: number;
-  pe: number | null;
-  eps: number | null;
-  marketCap: number | null;
-}) {
-  if (input.pe === null && input.eps === null) {
-    return scoreMarketOnly(input);
-  }
-
-  return scoreFullMode(input);
-}
-
-function scoreFullMode({
+function scoreDimensions({
+  quote,
+  price,
   changesPercentage,
   pe,
   eps,
-  marketCap
+  marketCap,
+  baseSource,
+  isMarketOnly
 }: {
+  quote: Quote;
+  price: number;
   changesPercentage: number;
   pe: number | null;
   eps: number | null;
   marketCap: number | null;
+  baseSource: AiScoreDataSource;
+  isMarketOnly: boolean;
 }) {
-  const breakdown: AiScoreBreakdownItem[] = [];
-  const trendScore = changesPercentage > 3 ? 20 : changesPercentage >= 0 ? 15 : changesPercentage >= -3 ? 10 : 5;
-  const absMove = Math.abs(changesPercentage);
-  const riskScore = absMove <= 2 ? 18 : absMove <= 5 ? 14 : absMove <= 10 ? 10 : 6;
+  const trend = scoreTrend({ quote, price, changesPercentage, baseSource });
+  const growth = scoreGrowth({ changesPercentage, eps, marketCap, isMarketOnly });
+  const valuation = scoreValuation({ pe, isMarketOnly, trendScore: trend.score });
+  const quality = scoreQuality({ eps, marketCap, isMarketOnly });
+  const sentiment = scoreSentiment({ quote, changesPercentage, baseSource });
+  const risk = scoreRisk({ quote, changesPercentage, marketCap, baseSource });
 
-  breakdown.push({
-    name: "价格趋势",
-    score: trendScore,
-    max: 20,
-    reason: `今日涨跌幅为 ${formatPercent(changesPercentage)}，按短期趋势规则计 ${trendScore} 分。`
-  });
+  return [
+    { key: "trend" as const, name: "趋势 Trend", weight: 20, ...trend },
+    { key: "growth" as const, name: "成长 Growth", weight: 20, ...growth },
+    { key: "valuation" as const, name: "估值 Valuation", weight: 15, ...valuation },
+    { key: "quality" as const, name: "盈利 Quality", weight: 15, ...quality },
+    { key: "sentiment" as const, name: "情绪 Sentiment", weight: 15, ...sentiment },
+    { key: "risk" as const, name: "风险 Risk", weight: 15, ...risk }
+  ].map((item) => ({
+    ...item,
+    score: clamp(Math.round(item.score), 0, 100),
+    weightedScore: (clamp(Math.round(item.score), 0, 100) * item.weight) / 100
+  }));
+}
 
-  if (pe !== null) {
-    const peScore = pe <= 0 ? 8 : pe < 25 ? 18 : pe <= 50 ? 14 : pe <= 100 ? 10 : 6;
-    breakdown.push({
-      name: "估值 PE",
-      score: peScore,
-      max: 20,
-      reason: pe <= 0 ? "PE 小于等于 0，按保守规则计 8 分。" : `PE 为 ${formatNumber(pe)}，按估值区间计 ${peScore} 分。`
-    });
-  }
+function scoreTrend({ quote, price, changesPercentage, baseSource }: { quote: Quote; price: number; changesPercentage: number; baseSource: AiScoreDataSource }) {
+  const moveScore = changesPercentage > 3 ? 92 : changesPercentage >= 1 ? 78 : changesPercentage >= 0 ? 66 : changesPercentage >= -3 ? 48 : 28;
+  const rangeScore = getRangePositionScore(price, quote.yearLow, quote.yearHigh);
+  const score = rangeScore === null ? moveScore : moveScore * 0.65 + rangeScore * 0.35;
 
+  return {
+    score,
+    source: rangeScore === null ? getEstimatedSource(baseSource) : baseSource,
+    reason: rangeScore === null
+      ? `涨跌幅为 ${formatPercent(changesPercentage)}，缺少52周区间时主要按短期趋势估算。`
+      : `涨跌幅为 ${formatPercent(changesPercentage)}，并结合52周价格区间位置计算趋势。`
+  };
+}
+
+function scoreGrowth({ changesPercentage, eps, marketCap, isMarketOnly }: { changesPercentage: number; eps: number | null; marketCap: number | null; isMarketOnly: boolean }) {
   if (eps !== null) {
-    const epsScore = eps <= 0 ? 5 : eps > 10 ? 20 : eps >= 3 ? 16 : 12;
-    breakdown.push({
-      name: "盈利能力 EPS",
-      score: epsScore,
-      max: 20,
-      reason: `EPS 为 ${formatNumber(eps)}，按盈利能力规则计 ${epsScore} 分。`
-    });
+    const epsBase = eps > 10 ? 88 : eps >= 3 ? 74 : eps > 0 ? 58 : 25;
+    const sizeBoost = marketCap !== null && marketCap >= 100_000_000_000 ? 6 : 0;
+    return {
+      score: epsBase + sizeBoost + Math.max(-8, Math.min(8, changesPercentage)),
+      source: "真实数据" as const,
+      reason: `EPS 为 ${formatNumber(eps)}，结合市值规模和短期动量评估成长质量。`
+    };
   }
 
-  if (marketCap !== null) {
-    const marketCapScore = marketCap > 1_000_000_000_000 ? 20 : marketCap >= 100_000_000_000 ? 16 : marketCap >= 10_000_000_000 ? 12 : 8;
-    breakdown.push({
-      name: "市值稳定性",
-      score: marketCapScore,
-      max: 20,
-      reason: `市值约 ${formatMarketCap(marketCap)}，按规模稳定性规则计 ${marketCapScore} 分。`
-    });
-  }
-
-  breakdown.push({
-    name: "风险调整",
-    score: riskScore,
-    max: 20,
-    reason: `涨跌幅绝对值为 ${formatPercent(absMove)}，按波动风险规则计 ${riskScore} 分。`
-  });
-
+  const estimate = 52 + Math.max(-12, Math.min(12, changesPercentage * 2)) + (marketCap !== null && marketCap >= 100_000_000_000 ? 6 : 0);
   return {
-    breakdown,
-    score: normalizeScore(breakdown),
-    scoreMode: "full" as const
+    score: isMarketOnly ? Math.min(68, estimate) : estimate,
+    source: "估算数据" as const,
+    reason: isMarketOnly ? "ETF/基金通常缺少 EPS，成长维度使用价格动量和规模进行保守估算。" : "缺少 EPS，成长维度使用价格动量和市值规模估算。"
   };
 }
 
-function scoreMarketOnly({ changesPercentage }: { changesPercentage: number; pe: number | null; eps: number | null; marketCap: number | null }) {
-  const trendScore = changesPercentage > 3 ? 40 : changesPercentage >= 0 ? 30 : changesPercentage >= -3 ? 20 : 10;
+function scoreValuation({ pe, isMarketOnly, trendScore }: { pe: number | null; isMarketOnly: boolean; trendScore: number }) {
+  if (pe !== null) {
+    const score = pe <= 0 ? 35 : pe < 20 ? 88 : pe <= 35 ? 74 : pe <= 60 ? 58 : pe <= 100 ? 42 : 25;
+    return {
+      score,
+      source: "真实数据" as const,
+      reason: pe <= 0 ? "PE 小于等于0，估值可读性较弱，按保守规则计分。" : `PE 为 ${formatNumber(pe)}，按估值区间计分。`
+    };
+  }
+
+  return {
+    score: isMarketOnly ? Math.min(62, trendScore * 0.75) : 50,
+    source: "估算数据" as const,
+    reason: isMarketOnly ? "ETF/基金可能没有 PE，估值维度使用市场走势保守估算。" : "缺少 PE，估值维度按中性偏保守估算。"
+  };
+}
+
+function scoreQuality({ eps, marketCap, isMarketOnly }: { eps: number | null; marketCap: number | null; isMarketOnly: boolean }) {
+  if (eps !== null) {
+    const epsScore = eps > 10 ? 92 : eps >= 3 ? 78 : eps > 0 ? 60 : 25;
+    const capScore = marketCap === null ? 50 : marketCap > 1_000_000_000_000 ? 95 : marketCap >= 100_000_000_000 ? 82 : marketCap >= 10_000_000_000 ? 62 : 45;
+    return {
+      score: epsScore * 0.7 + capScore * 0.3,
+      source: marketCap === null ? "估算数据" as const : "真实数据" as const,
+      reason: `EPS 为 ${formatNumber(eps)}，并结合市值稳定性衡量盈利质量。`
+    };
+  }
+
+  const estimate = marketCap === null ? 48 : marketCap >= 100_000_000_000 ? 62 : 52;
+  return {
+    score: isMarketOnly ? Math.min(60, estimate) : estimate,
+    source: "估算数据" as const,
+    reason: isMarketOnly ? "ETF/基金可能没有 EPS，盈利质量维度按基金类资产保守估算。" : "缺少 EPS，盈利质量维度按市值稳定性估算。"
+  };
+}
+
+function scoreSentiment({ quote, changesPercentage, baseSource }: { quote: Quote; changesPercentage: number; baseSource: AiScoreDataSource }) {
+  const moveScore = changesPercentage > 5 ? 92 : changesPercentage > 2 ? 80 : changesPercentage >= 0 ? 66 : changesPercentage >= -2 ? 46 : 30;
+  const volumeScore = quote.volume ? clamp(55 + Math.log10(Math.max(quote.volume, 1)) * 4, 45, 85) : null;
+
+  return {
+    score: volumeScore === null ? moveScore : moveScore * 0.75 + volumeScore * 0.25,
+    source: volumeScore === null ? getEstimatedSource(baseSource) : baseSource,
+    reason: volumeScore === null
+      ? `情绪维度主要参考今日涨跌幅 ${formatPercent(changesPercentage)}，成交量数据不足。`
+      : `情绪维度结合今日涨跌幅 ${formatPercent(changesPercentage)} 和成交量。`
+  };
+}
+
+function scoreRisk({ quote, changesPercentage, marketCap, baseSource }: { quote: Quote; changesPercentage: number; marketCap: number | null; baseSource: AiScoreDataSource }) {
   const absMove = Math.abs(changesPercentage);
-  const volatilityScore = absMove <= 2 ? 35 : absMove <= 5 ? 28 : absMove <= 10 ? 18 : 10;
-  const completenessScore = 20;
-  const breakdown: AiScoreBreakdownItem[] = [
-    {
-      name: "价格趋势",
-      score: trendScore,
-      max: 40,
-      reason: `今日涨跌幅为 ${formatPercent(changesPercentage)}，按市场走势规则计 ${trendScore} 分。`
-    },
-    {
-      name: "波动风险",
-      score: volatilityScore,
-      max: 40,
-      reason: `涨跌幅绝对值为 ${formatPercent(absMove)}，按波动风险规则计 ${volatilityScore} 分。`
-    },
-    {
-      name: "数据完整性",
-      score: completenessScore,
-      max: 20,
-      reason: "已取得价格和涨跌幅，按市场数据完整性规则计 20 分。"
-    }
-  ];
+  const volatilityScore = absMove <= 2 ? 88 : absMove <= 5 ? 72 : absMove <= 10 ? 48 : 25;
+  const capScore = marketCap === null ? 52 : marketCap > 1_000_000_000_000 ? 92 : marketCap >= 100_000_000_000 ? 78 : marketCap >= 10_000_000_000 ? 58 : 40;
+  const intradayRange = quote.dayHigh !== null && quote.dayLow !== null && quote.price ? ((quote.dayHigh - quote.dayLow) / quote.price) * 100 : null;
+  const rangePenalty = intradayRange !== null && intradayRange > 5 ? 8 : 0;
 
   return {
-    breakdown,
-    score: normalizeScore(breakdown),
-    assetType: "ETF" as const,
-    scoreMode: "market_only" as const
+    score: volatilityScore * 0.6 + capScore * 0.4 - rangePenalty,
+    source: marketCap === null || intradayRange === null ? getEstimatedSource(baseSource) : baseSource,
+    reason: `风险维度按波动幅度 ${formatPercent(absMove)}、市值规模和日内振幅综合计算。`
   };
 }
 
-function normalizeScore(breakdown: AiScoreBreakdownItem[]) {
-  const totalScore = breakdown.reduce((total, item) => total + item.score, 0);
-  const totalMax = breakdown.reduce((total, item) => total + item.max, 0);
-  if (totalMax <= 0) return 0;
-  return Math.round((totalScore / totalMax) * 100);
-}
-
-function getRating(score: number) {
-  if (score >= 80) return "Strong Watch / 强烈关注";
-  if (score >= 65) return "Watch / 值得观察";
-  if (score >= 50) return "Neutral / 中性";
-  return "High Risk / 高风险";
+function toBreakdownItem(dimension: AiScoreDimension): AiScoreBreakdownItem {
+  return {
+    name: dimension.name,
+    score: Math.round(dimension.weightedScore),
+    max: dimension.weight,
+    reason: dimension.reason,
+    source: dimension.source
+  };
 }
 
 function getStrengths({
   score,
-  changesPercentage,
+  dimensions,
   pe,
   eps,
   marketCap,
+  changesPercentage,
   scoreMode
 }: {
   score: number;
-  changesPercentage: number;
+  dimensions: AiScoreDimension[];
   pe: number | null;
   eps: number | null;
   marketCap: number | null;
-  scoreMode?: "full" | "market_only";
+  changesPercentage: number;
+  scoreMode: AiScoreMode;
 }) {
   const strengths: string[] = [];
-  if (scoreMode === "market_only") strengths.push("使用价格和涨跌幅进行市场走势评分。");
-  if (score >= 80) strengths.push("综合评分较高，多个基础维度表现均衡。");
-  if (changesPercentage > 0) strengths.push("短期价格趋势为正。");
-  if (pe !== null && pe > 0 && pe < 50) strengths.push("PE 处于 V1 规则的可观察区间。");
-  if (eps !== null && eps > 3) strengths.push("EPS 显示公司具备正向盈利能力。");
-  if (marketCap !== null && marketCap >= 100_000_000_000) strengths.push("市值规模较大，稳定性评分较好。");
-  return strengths.length ? strengths : ["暂无明显优势，建议结合更多基本面和行业信息观察。"];
+  const topDimensions = [...dimensions].sort((a, b) => b.score - a.score).slice(0, 2);
+  topDimensions.forEach((dimension) => {
+    if (dimension.score >= 70) strengths.push(`${dimension.name} 表现较好，当前维度得分 ${dimension.score}/100。`);
+  });
+  if (score >= 75) strengths.push("综合评分较高，六维模型显示当前具备较强观察价值。");
+  if (changesPercentage > 0) strengths.push("短期价格动量为正，市场关注度较好。");
+  if (pe !== null && pe > 0 && pe <= 35) strengths.push("PE 处于相对可读区间，估值压力暂不极端。");
+  if (eps !== null && eps > 0) strengths.push("EPS 为正，盈利维度有基础支撑。");
+  if (marketCap !== null && marketCap >= 100_000_000_000) strengths.push("市值规模较大，稳定性维度获得支撑。");
+  if (scoreMode === "market_only") strengths.push("在 ETF/基金数据不完整时，仍可用市场走势进行保守评分。");
+  return unique(strengths).slice(0, 5);
 }
 
 function getRisks({
-  changesPercentage,
+  dimensions,
   pe,
   eps,
   marketCap,
-  scoreMode
+  changesPercentage,
+  scoreMode,
+  quote
 }: {
-  changesPercentage: number;
+  dimensions: AiScoreDimension[];
   pe: number | null;
   eps: number | null;
   marketCap: number | null;
-  scoreMode?: "full" | "market_only";
+  changesPercentage: number;
+  scoreMode: AiScoreMode;
+  quote: Quote;
 }) {
   const risks: string[] = [];
-  if (scoreMode === "market_only") risks.push("ETF/基金可能没有 PE 或 EPS，评分不包含估值和盈利能力。");
-  if (Math.abs(changesPercentage) > 5) risks.push("当日波动较大，短期风险较高。");
-  if (scoreMode !== "market_only" && (pe === null || pe <= 0)) risks.push("PE 缺失或为负，估值可读性较弱。");
-  if (pe !== null && pe > 100) risks.push("PE 较高，估值压力可能偏大。");
-  if (scoreMode !== "market_only" && (eps === null || eps <= 0)) risks.push("EPS 缺失或不为正，盈利能力存在不确定性。");
-  if (marketCap !== null && marketCap < 10_000_000_000) risks.push("市值规模较小，稳定性评分偏低。");
-  return risks.length ? risks : ["V1 规则未发现突出的单项风险，但仍需自行研究。"];
+  const weakDimensions = dimensions.filter((dimension) => dimension.score < 50);
+  weakDimensions.slice(0, 3).forEach((dimension) => risks.push(`${dimension.name} 偏弱，当前维度得分 ${dimension.score}/100。`));
+  if (Math.abs(changesPercentage) > 5) risks.push("单日波动较大，短期追涨杀跌风险较高。");
+  if (pe === null || pe <= 0) risks.push("PE 缺失或不可读，估值判断需要更多财报数据。");
+  if (pe !== null && pe > 80) risks.push("PE 较高，估值回撤风险需要重点关注。");
+  if (eps === null || eps <= 0) risks.push("EPS 缺失或不为正，盈利质量需要进一步验证。");
+  if (marketCap !== null && marketCap < 10_000_000_000) risks.push("市值规模偏小，价格波动和流动性风险可能更高。");
+  if (quote.marketDataSource === "mock") risks.push("当前使用示例行情，结果只适合功能预览。");
+  if (scoreMode === "market_only") risks.push("ETF/基金可能没有 PE 或 EPS，六维中部分基本面维度为估算。");
+  return unique(risks).slice(0, 6);
+}
+
+function getInvestorProfile({ score, changesPercentage, marketCap, scoreMode }: { score: number; changesPercentage: number; marketCap: number | null; scoreMode: AiScoreMode }) {
+  if (scoreMode === "market_only") return "适合偏交易型或趋势跟踪型投资者，需接受 ETF/基金基本面数据不完整。";
+  if (score >= 85 && Math.abs(changesPercentage) <= 5) return "适合成长型与核心配置型投资者继续深入研究。";
+  if (score >= 75) return "适合成长型投资者和中等风险承受能力投资者观察。";
+  if (score >= 60) return "适合稳健型投资者放入观察清单，等待更好的价格或数据确认。";
+  if (marketCap !== null && marketCap < 10_000_000_000) return "更适合高风险承受能力投资者，小仓位研究即可。";
+  return "更适合观望型投资者，暂不适合作为核心仓位依据。";
+}
+
+function getAiSummary({
+  ticker,
+  score,
+  ratingLabel,
+  dimensions,
+  changesPercentage,
+  scoreMode,
+  baseSource
+}: {
+  ticker: string;
+  score: number;
+  ratingLabel: string;
+  dimensions: AiScoreDimension[];
+  changesPercentage: number;
+  scoreMode: AiScoreMode;
+  baseSource: AiScoreDataSource;
+}) {
+  const best = [...dimensions].sort((a, b) => b.score - a.score)[0];
+  const weakest = [...dimensions].sort((a, b) => a.score - b.score)[0];
+  const dataNote = baseSource === "真实数据" ? "主要基于真实行情数据" : `当前包含${baseSource}`;
+  const modeNote = scoreMode === "market_only" ? "由于 PE/EPS 不完整，部分基本面维度使用市场走势估算。" : scoreMode === "estimated" ? "部分缺失字段已用规则模型估算。" : "数据完整度较好。";
+
+  return `${ticker} 当前 AI Score 为 ${score}/100，评级为 ${ratingLabel}。${dataNote}，今日涨跌幅 ${formatPercent(changesPercentage)}。六维中 ${best.name} 相对突出，${weakest.name} 是主要短板。${modeNote} 该结果用于投资研究和教育，不构成买卖建议。`;
+}
+
+function getRating(score: number) {
+  if (score >= 85) return "Strong Buy";
+  if (score >= 75) return "Buy";
+  if (score >= 60) return "Hold";
+  if (score >= 45) return "Watch";
+  return "Avoid";
+}
+
+function getRatingLabel(rating: string) {
+  if (rating === "Strong Buy") return "强烈买入观察";
+  if (rating === "Buy") return "买入观察";
+  if (rating === "Hold") return "持有观察";
+  if (rating === "Watch") return "谨慎观察";
+  return "回避";
+}
+
+function getQuoteSource(quote: Quote): AiScoreDataSource {
+  if (quote.stale) return "缓存数据";
+  if (quote.marketDataSource === "fmp-stable") return "真实数据";
+  if (quote.marketDataSource === "yahoo") return "缓存数据";
+  return "示例数据";
+}
+
+function getEstimatedSource(baseSource: AiScoreDataSource): AiScoreDataSource {
+  return baseSource === "示例数据" ? "示例数据" : "估算数据";
+}
+
+function getOverallSource(dimensions: AiScoreDimension[], baseSource: AiScoreDataSource): AiScoreDataSource {
+  if (baseSource === "示例数据") return "示例数据";
+  if (dimensions.some((item) => item.source === "缓存数据")) return "缓存数据";
+  if (dimensions.some((item) => item.source === "估算数据")) return "估算数据";
+  return "真实数据";
+}
+
+function getDataSourceDetails(quote: Quote, dimensions: AiScoreDimension[], isMarketOnly: boolean) {
+  const details = [
+    `行情来源：${quote.marketDataSource === "fmp-stable" ? "FMP stable quote" : quote.marketDataSource === "yahoo" ? "Yahoo fallback" : "本地示例数据"}`,
+    quote.stale ? "当前返回缓存数据。" : "当前返回最新可用数据。",
+    isMarketOnly ? "PE/EPS 缺失，ETF/基金或数据不足场景下使用 market-only/估算评分。" : "PE/EPS 可用于基本面维度。"
+  ];
+  const estimated = dimensions.filter((item) => item.source === "估算数据").map((item) => item.name);
+  if (estimated.length) details.push(`估算维度：${estimated.join("、")}。`);
+  return details;
+}
+
+function getRangePositionScore(price: number, yearLow: number | null, yearHigh: number | null) {
+  if (yearLow === null || yearHigh === null || yearHigh <= yearLow || price <= 0) return null;
+  const position = (price - yearLow) / (yearHigh - yearLow);
+  return clamp(position * 100, 10, 95);
+}
+
+function getAiScoreCacheKey(ticker: string) {
+  return `ai-score:v2:${ticker.trim().toUpperCase()}`;
 }
 
 function nullableNumber(value: unknown) {
@@ -291,16 +441,18 @@ function numberOrZero(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function unique(items: string[]) {
+  return Array.from(new Set(items)).filter(Boolean);
+}
+
 function formatNumber(value: number) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
 }
 
 function formatPercent(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
-}
-
-function formatMarketCap(value: number) {
-  if (value >= 1_000_000_000_000) return `${formatNumber(value / 1_000_000_000_000)}T USD`;
-  if (value >= 1_000_000_000) return `${formatNumber(value / 1_000_000_000)}B USD`;
-  return `${formatNumber(value / 1_000_000)}M USD`;
 }

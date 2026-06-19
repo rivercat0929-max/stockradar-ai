@@ -22,10 +22,12 @@ type AiScoreSummary = {
   ticker: string;
   score: number;
   rating: string;
+  ratingLabel?: string;
   price: number;
   changesPercentage: number;
   assetType?: "ETF";
-  scoreMode?: "full" | "market_only";
+  scoreMode?: "full" | "market_only" | "estimated";
+  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
   stale?: boolean;
 };
 
@@ -377,11 +379,13 @@ function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; erro
       <div className="space-y-1">
         <p className="font-semibold text-white">{score.score}/100</p>
         <span className={`inline-flex rounded-md border px-2 py-0.5 text-xs font-semibold ${getAiRatingClass(score.score)}`}>
-          {getAiRatingLabel(score.score, t)}
+          {score.ratingLabel ? `${score.rating} / ${score.ratingLabel}` : getAiRatingLabel(score.rating)}
         </span>
         {score.scoreMode === "market_only" ? <p className="text-xs text-slate-400">{t("marketOnlyScore")}</p> : null}
+        {score.scoreMode === "estimated" ? <p className="text-xs text-slate-400">含估算维度</p> : null}
         {score.assetType === "ETF" ? <p className="text-xs text-slate-400">{t("etfDataNotice")}</p> : null}
         {score.stale ? <p className="text-xs text-amber-200">{t("usingCachedData")}</p> : null}
+        {score.dataSource ? <p className="text-xs text-slate-400">{score.dataSource}</p> : null}
       </div>
     );
   }
@@ -396,11 +400,13 @@ function getAccountName(accounts: PortfolioAccount[], accountId?: string) {
   return accounts.find((account) => account.id === accountId)?.name ?? "-";
 }
 
-function getAiRatingLabel(score: number, t: ReturnType<typeof useLanguage>["t"]) {
-  if (score >= 80) return t("strongWatch");
-  if (score >= 65) return t("watch");
-  if (score >= 50) return t("neutral");
-  return t("highRisk");
+function getAiRatingLabel(rating: string) {
+  if (rating === "Strong Buy") return "Strong Buy / 强烈买入观察";
+  if (rating === "Buy") return "Buy / 买入观察";
+  if (rating === "Hold") return "Hold / 持有观察";
+  if (rating === "Watch") return "Watch / 谨慎观察";
+  if (rating === "Avoid") return "Avoid / 回避";
+  return rating;
 }
 
 function getAiRatingClass(score: number) {

@@ -20,7 +20,8 @@ type AlertCheckResult = {
   price: number;
   changesPercentage: number;
   assetType?: "ETF";
-  scoreMode?: "full" | "market_only";
+  scoreMode?: "full" | "market_only" | "estimated";
+  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
   stale?: boolean;
 };
 
@@ -418,7 +419,9 @@ export default function AlertsPage() {
                           <div>
                             <p>{result.score}/100</p>
                             {result.scoreMode === "market_only" ? <p className="text-xs text-muted">{t("marketOnlyScore")}</p> : null}
+                            {result.scoreMode === "estimated" ? <p className="text-xs text-muted">含估算维度</p> : null}
                             {result.assetType === "ETF" ? <p className="text-xs text-muted">{t("etfDataNotice")}</p> : null}
+                            {result.dataSource ? <p className="text-xs text-muted">{result.dataSource}</p> : null}
                           </div>
                         ) : (
                           <span className="text-muted">-</span>

@@ -15,10 +15,12 @@ type AiScoreSummary = {
   ticker: string;
   score: number;
   rating: string;
+  ratingLabel?: string;
   price: number;
   changesPercentage: number;
   assetType?: "ETF";
-  scoreMode?: "full" | "market_only";
+  scoreMode?: "full" | "market_only" | "estimated";
+  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
   stale?: boolean;
 };
 
@@ -130,10 +132,12 @@ export default function DashboardPage() {
               score.ticker,
               <ScoreBadge key={`${score.ticker}-ai-score`} score={score.score} />,
               <div key={`${score.ticker}-rating`}>
-                <p>{getLocalizedRating(score.score, t)}</p>
+                <p>{score.ratingLabel ? `${score.rating} / ${score.ratingLabel}` : getV2RatingLabel(score.rating)}</p>
                 {score.scoreMode === "market_only" ? <p className="text-xs text-muted">{t("marketOnlyScore")}</p> : null}
+                {score.scoreMode === "estimated" ? <p className="text-xs text-muted">含估算维度</p> : null}
                 {score.assetType === "ETF" ? <p className="text-xs text-muted">{t("etfDataNotice")}</p> : null}
                 {score.stale ? <p className="text-xs text-amber-700">{t("usingCachedData")}</p> : null}
+                {score.dataSource ? <p className="text-xs text-muted">{score.dataSource}</p> : null}
               </div>,
               formatCurrency(score.price),
               <span key={`${score.ticker}-change`} className={score.changesPercentage >= 0 ? "text-green-600" : "text-red-600"}>
@@ -172,9 +176,11 @@ function formatPercent(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function getLocalizedRating(score: number, t: ReturnType<typeof useLanguage>["t"]) {
-  if (score >= 80) return t("strongWatch");
-  if (score >= 65) return t("watch");
-  if (score >= 50) return t("neutral");
-  return t("highRisk");
+function getV2RatingLabel(rating: string) {
+  if (rating === "Strong Buy") return "Strong Buy / 强烈买入观察";
+  if (rating === "Buy") return "Buy / 买入观察";
+  if (rating === "Hold") return "Hold / 持有观察";
+  if (rating === "Watch") return "Watch / 谨慎观察";
+  if (rating === "Avoid") return "Avoid / 回避";
+  return rating;
 }
