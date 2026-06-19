@@ -11,6 +11,7 @@ const navItems: { href: string; labelKey: TranslationKey }[] = [
   { href: "/holdings", labelKey: "portfolio" },
   { href: "/portfolio", labelKey: "portfolioAnalytics" },
   { href: "/ai-score", labelKey: "aiScore" },
+  { href: "/screener", labelKey: "screener" },
   { href: "/alerts", labelKey: "alerts" },
   { href: "/radar", labelKey: "radar" },
   { href: "/calendar", labelKey: "calendar" },
