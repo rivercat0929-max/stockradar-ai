@@ -16,7 +16,13 @@ export interface Watchlist {
   companyName: string;
   market: string;
   status: WatchStatus;
+  group?: "重点观察" | "等待回调" | "财报前观察" | "长期关注" | "已放弃";
+  targetBuyPrice?: number | null;
+  targetSellPrice?: number | null;
+  watchReason?: string | null;
+  notes?: string | null;
   createdAt: string;
+  updatedAt?: string | Date;
 }
 
 export interface PortfolioAccount {
