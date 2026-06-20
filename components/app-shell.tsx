@@ -16,7 +16,8 @@ const navItems: { href: string; labelKey: TranslationKey }[] = [
   { href: "/radar", labelKey: "radar" },
   { href: "/calendar", labelKey: "calendar" },
   { href: "/daily-report", labelKey: "dailyReport" },
-  { href: "/backtest", labelKey: "backtest" }
+  { href: "/backtest", labelKey: "backtest" },
+  { href: "/settings", labelKey: "settings" }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
