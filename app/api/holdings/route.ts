@@ -1,4 +1,4 @@
-import { Prisma, PrismaClient } from "@prisma/client";
+﻿import { Prisma, PrismaClient } from "@prisma/client";
 import { parseHoldingInput } from "@/lib/holdings-validation";
 import { getQuote } from "@/lib/market-data";
 
@@ -141,10 +141,11 @@ async function enrichHoldingsWithMarketData<T extends { ticker: string; shares: 
     holdings.map(async (holding) => {
       const quote = await getQuote(holding.ticker);
       const currentPrice = quote.price;
-      const marketValue = roundMoney(holding.shares * currentPrice);
+      const hasPrice = typeof currentPrice === "number" && Number.isFinite(currentPrice);
+      const marketValue = hasPrice ? roundMoney(holding.shares * currentPrice) : null;
       const totalCost = roundMoney(holding.shares * holding.averageCost);
-      const unrealizedPL = roundMoney(marketValue - totalCost);
-      const unrealizedPLPercent = totalCost > 0 ? roundPercent((unrealizedPL / totalCost) * 100) : 0;
+      const unrealizedPL = marketValue === null ? null : roundMoney(marketValue - totalCost);
+      const unrealizedPLPercent = unrealizedPL !== null && totalCost > 0 ? roundPercent((unrealizedPL / totalCost) * 100) : null;
 
       return {
         ...holding,
@@ -160,11 +161,11 @@ async function enrichHoldingsWithMarketData<T extends { ticker: string; shares: 
     })
   );
 
-  const totalMarketValue = quotedHoldings.reduce((sum, holding) => sum + holding.marketValue, 0);
+  const totalMarketValue = quotedHoldings.reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0);
 
   return quotedHoldings.map((holding) => ({
     ...holding,
-    allocation: totalMarketValue > 0 ? roundPercent((holding.marketValue / totalMarketValue) * 100) : 0
+    allocation: totalMarketValue > 0 && holding.marketValue !== null ? roundPercent((holding.marketValue / totalMarketValue) * 100) : 0
   }));
 }
 
@@ -197,3 +198,6 @@ function prismaErrorResponse(error: unknown, fallback: string) {
 
   return Response.json({ error: fallback }, { status: 500 });
 }
+
+
+

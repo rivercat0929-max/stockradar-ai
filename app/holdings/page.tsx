@@ -1,7 +1,8 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { DataSourceBadge } from "@/components/data-source-badge";
 import { HoldingForm, type HoldingFormValues } from "@/components/holding-form";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
@@ -27,7 +28,7 @@ type AiScoreSummary = {
   changesPercentage: number;
   assetType?: "ETF";
   scoreMode?: "full" | "market_only" | "estimated";
-  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+  dataSource?: "çœŸå®žæ•°æ®" | "ç¼“å­˜æ•°æ®" | "ä¼°ç®—æ•°æ®" | "ç¤ºä¾‹æ•°æ®";
   stale?: boolean;
 };
 
@@ -295,7 +296,7 @@ export default function HoldingsPage() {
             <tbody>
               {!isLoading && filteredHoldings.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-3 py-8 text-center text-slate-400">
+                  <td colSpan={13} className="px-3 py-8 text-center text-slate-400">
                     {t("noHoldings")}
                   </td>
                 </tr>
@@ -316,10 +317,10 @@ export default function HoldingsPage() {
                     <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.currentPrice ?? 0)}</td>
                     <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.marketValue ?? 0)}</td>
                     <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
-                      {formatSignedCurrency(holding.unrealizedPL ?? 0)}
+                      {formatNullableSignedCurrency(holding.unrealizedPL)}
                     </td>
                     <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
-                      {formatPercent(holding.unrealizedPLPercent ?? 0)}
+                      {formatNullablePercent(holding.unrealizedPLPercent)}
                     </td>
                     <td className="border-b border-slate-800 px-3 py-3">{formatPercent(allocation)}</td>
                     <td className="border-b border-slate-800 px-3 py-3">
@@ -382,7 +383,7 @@ function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; erro
           {score.ratingLabel ? `${score.rating} / ${score.ratingLabel}` : getAiRatingLabel(score.rating)}
         </span>
         {score.scoreMode === "market_only" ? <p className="text-xs text-slate-400">{t("marketOnlyScore")}</p> : null}
-        {score.scoreMode === "estimated" ? <p className="text-xs text-slate-400">含估算维度</p> : null}
+        {score.scoreMode === "estimated" ? <p className="text-xs text-slate-400">å«ä¼°ç®—ç»´åº¦</p> : null}
         {score.assetType === "ETF" ? <p className="text-xs text-slate-400">{t("etfDataNotice")}</p> : null}
         {score.stale ? <p className="text-xs text-amber-200">{t("usingCachedData")}</p> : null}
         {score.dataSource ? <p className="text-xs text-slate-400">{score.dataSource}</p> : null}
@@ -401,11 +402,11 @@ function getAccountName(accounts: PortfolioAccount[], accountId?: string) {
 }
 
 function getAiRatingLabel(rating: string) {
-  if (rating === "Strong Buy") return "Strong Buy / 强烈买入观察";
-  if (rating === "Buy") return "Buy / 买入观察";
-  if (rating === "Hold") return "Hold / 持有观察";
-  if (rating === "Watch") return "Watch / 谨慎观察";
-  if (rating === "Avoid") return "Avoid / 回避";
+  if (rating === "Strong Buy") return "Strong Buy / å¼ºçƒˆä¹°å…¥è§‚å¯Ÿ";
+  if (rating === "Buy") return "Buy / ä¹°å…¥è§‚å¯Ÿ";
+  if (rating === "Hold") return "Hold / æŒæœ‰è§‚å¯Ÿ";
+  if (rating === "Watch") return "Watch / è°¨æ…Žè§‚å¯Ÿ";
+  if (rating === "Avoid") return "Avoid / å›žé¿";
   return rating;
 }
 
@@ -416,6 +417,10 @@ function getAiRatingClass(score: number) {
   return "border-red-400/50 bg-red-500/15 text-red-200";
 }
 
+function formatNullableCurrency(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? formatCurrency(value) : "--";
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -424,11 +429,19 @@ function formatCurrency(value: number) {
   }).format(value);
 }
 
+function formatNullableSignedCurrency(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? formatSignedCurrency(value) : "--";
+}
+
 function formatSignedCurrency(value: number) {
   const formatted = formatCurrency(Math.abs(value));
   if (value > 0) return `+${formatted}`;
   if (value < 0) return `-${formatted}`;
   return formatted;
+}
+
+function formatNullablePercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? formatPercent(value) : "--";
 }
 
 function formatPercent(value: number) {
@@ -457,3 +470,4 @@ function optionalText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
+

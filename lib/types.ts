@@ -1,4 +1,4 @@
-export type WatchStatus = "持仓" | "观察" | "准备买入" | "准备卖出";
+﻿export type WatchStatus = "持仓" | "观察" | "准备买入" | "准备卖出";
 export type AlertPriority = "P0" | "P1" | "P2" | "P3";
 export type AlertType = "earnings" | "dividend" | "macro" | "technical" | "valuation" | "risk" | "filing";
 
@@ -16,7 +16,7 @@ export interface Watchlist {
   companyName: string;
   market: string;
   status: WatchStatus;
-  group?: "重点观察" | "等待回调" | "财报前观察" | "长期关注" | "已放弃";
+  group?: "é‡ç‚¹è§‚å¯Ÿ" | "ç­‰å¾…å›žè°ƒ" | "è´¢æŠ¥å‰è§‚å¯Ÿ" | "é•¿æœŸå…³æ³¨" | "å·²æ”¾å¼ƒ";
   targetBuyPrice?: number | null;
   targetSellPrice?: number | null;
   watchReason?: string | null;
@@ -48,14 +48,14 @@ export interface Holding {
   createdAt: string | Date;
   updatedAt: string | Date;
   userId?: string;
-  currentPrice?: number;
+  currentPrice?: number | null;
   riskStatus?: string;
-  marketValue?: number;
+  marketValue?: number | null;
   totalCost?: number;
-  unrealizedPL?: number;
-  unrealizedPLPercent?: number;
+  unrealizedPL?: number | null;
+  unrealizedPLPercent?: number | null;
   allocation?: number;
-  marketDataSource?: "fmp-stable" | "yahoo" | "mock";
+  marketDataSource?: "fmp" | "fmp-stable" | "yahoo" | "cache" | "stale-cache" | "mock" | "unavailable";
 }
 
 export interface StockScore {
@@ -129,3 +129,5 @@ export interface DailyBriefing {
   risks: string[];
   upcomingEvents: string[];
 }
+
+

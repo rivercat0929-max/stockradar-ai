@@ -1,4 +1,4 @@
-import { getAiScore, type AiScoreDataSource } from "@/lib/ai-score";
+﻿import { getAiScore, type AiScoreDataSource } from "@/lib/ai-score";
 import { getQuote, lookupStock, type MarketDataSource } from "@/lib/market-data";
 
 export const defaultWatchlistUser = {
@@ -54,7 +54,7 @@ export type EnrichedWatchlistItem = WatchlistRecord & {
   priceDataSource: WatchlistDataQuality;
   scoreDataSource: WatchlistDataQuality;
   eventDataSource: WatchlistDataQuality;
-  rawMarketDataSource: MarketDataSource | null;
+  rawMarketDataSource: string | null;
 };
 
 export function parseWatchlistInput(body: unknown): { data?: WatchlistInput; error?: string } {
@@ -105,13 +105,13 @@ export async function normalizeWatchlistInput(input: WatchlistInput): Promise<No
 }
 
 export async function enrichWatchlistItems(items: WatchlistRecord[]): Promise<EnrichedWatchlistItem[]> {
-  const enriched = await Promise.all(
+  return Promise.all(
     items.map(async (item): Promise<EnrichedWatchlistItem> => {
       const ticker = item.ticker.trim().toUpperCase();
       try {
         const [quote, score] = await Promise.all([getQuote(ticker), getAiScore(ticker)]);
-        const target = getTargetDistance(quote.price, item.targetBuyPrice ?? null, item.targetSellPrice ?? null);
-        const alert = getWatchlistAlert({ price: quote.price, changePercent: quote.changesPercentage, score: score.score, target });
+        const target = quote.price === null ? { isNear: false, label: null } : getTargetDistance(quote.price, item.targetBuyPrice ?? null, item.targetSellPrice ?? null);
+        const alert = getWatchlistAlert({ price: quote.price ?? 0, changePercent: quote.changesPercentage ?? 0, score: score.score, target });
 
         return {
           ...item,
@@ -153,8 +153,6 @@ export async function enrichWatchlistItems(items: WatchlistRecord[]): Promise<En
       }
     })
   );
-
-  return enriched;
 }
 
 export function toHoldingLikeWatchlistItems(items: WatchlistRecord[]) {
@@ -191,10 +189,10 @@ function getOptionalNumber(value: unknown) {
   return Number.isFinite(number) ? number : null;
 }
 
-function mapMarketSource(source: MarketDataSource, stale?: boolean): WatchlistDataQuality {
-  if (stale) return "缓存数据";
-  if (source === "fmp-stable") return "真实数据";
-  if (source === "yahoo") return "缓存数据";
+function mapMarketSource(source: string, stale?: boolean): WatchlistDataQuality {
+  if (stale || source === "cache" || source === "stale-cache") return "缓存数据";
+  if (source === "fmp" || source === "fmp-stable" || source === "yahoo") return "真实数据";
+  if (source === "unavailable") return "示例数据";
   return "示例数据";
 }
 
@@ -220,17 +218,7 @@ function getTargetDistance(price: number, buyTarget: number | null, sellTarget: 
   };
 }
 
-function getWatchlistAlert({
-  price,
-  changePercent,
-  score,
-  target
-}: {
-  price: number;
-  changePercent: number;
-  score: number;
-  target: { isNear: boolean; label: string | null };
-}) {
+function getWatchlistAlert({ price, changePercent, score, target }: { price: number; changePercent: number; score: number; target: { isNear: boolean; label: string | null } }) {
   if (target.isNear) return { hasAlert: true, label: target.label ?? "接近目标价" };
   if (Math.abs(changePercent) >= 5) return { hasAlert: true, label: `今日波动 ${changePercent.toFixed(1)}%` };
   if (score >= 80) return { hasAlert: true, label: "AI Score 高于 80" };
@@ -244,3 +232,4 @@ function getEstimatedEarningsDate(ticker: string) {
   date.setDate(date.getDate() + 7 + (seed % 24));
   return date.toISOString().slice(0, 10);
 }
+
