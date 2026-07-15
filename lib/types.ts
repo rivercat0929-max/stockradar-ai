@@ -16,7 +16,7 @@ export interface Watchlist {
   companyName: string;
   market: string;
   status: WatchStatus;
-  group?: "é‡ç‚¹è§‚å¯Ÿ" | "ç­‰å¾…å›žè°ƒ" | "è´¢æŠ¥å‰è§‚å¯Ÿ" | "é•¿æœŸå…³æ³¨" | "å·²æ”¾å¼ƒ";
+  group?: "重点观察" | "等待回调" | "财报前观察" | "长期关注" | "已放弃";
   targetBuyPrice?: number | null;
   targetSellPrice?: number | null;
   watchReason?: string | null;
@@ -129,5 +129,7 @@ export interface DailyBriefing {
   risks: string[];
   upcomingEvents: string[];
 }
+
+
 
 

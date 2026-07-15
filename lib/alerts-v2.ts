@@ -71,7 +71,7 @@ export async function generateRadarAlertsV2({
         }
         contexts.set(ticker, buildMarketContext(quote));
       } catch (error) {
-        errors.push({ ticker, error: error instanceof Error ? error.message : "è¡Œæƒ…è¯»å–å¤±è´¥" });
+        errors.push({ ticker, error: error instanceof Error ? error.message : "行情读取失败" });
       }
     })
   );
@@ -126,17 +126,17 @@ function getTechnicalAlerts(context: MarketContext): RadarAlertV2[] {
   const alerts: RadarAlertV2[] = [];
 
   if (quote.yearHigh && price >= quote.yearHigh * 0.995) {
-    alerts.push(makeAlert(quote.ticker, "technical", "high", "åˆ›52å‘¨æ–°é«˜", `${quote.ticker} æŽ¥è¿‘æˆ–çªç ´52å‘¨é«˜ç‚¹ã€‚`, formatMoney(price), context.source, context.quote));
+    alerts.push(makeAlert(quote.ticker, "technical", "high", "创52周新高", `${quote.ticker} 接近或突破52周高点。`, formatMoney(price), context.source, context.quote));
   }
 
   if (quote.yearLow && price <= quote.yearLow * 1.005) {
-    alerts.push(makeAlert(quote.ticker, "technical", "high", "è·Œç ´52å‘¨ä½Žç‚¹", `${quote.ticker} æŽ¥è¿‘æˆ–è·Œç ´52å‘¨ä½Žç‚¹ã€‚`, formatMoney(price), context.source, context.quote));
+    alerts.push(makeAlert(quote.ticker, "technical", "high", "跌破52周低点", `${quote.ticker} 接近或跌破52周低点。`, formatMoney(price), context.source, context.quote));
   }
 
   [
-    ["20æ—¥å‡çº¿", context.ma20],
-    ["50æ—¥å‡çº¿", context.ma50],
-    ["200æ—¥å‡çº¿", context.ma200]
+    ["20日均线", context.ma20],
+    ["50日均线", context.ma50],
+    ["200日均线", context.ma200]
   ].forEach(([label, average]) => {
     if (typeof average !== "number") return;
     const isAbove = price > average;
@@ -144,9 +144,9 @@ function getTechnicalAlerts(context: MarketContext): RadarAlertV2[] {
       makeAlert(
         quote.ticker,
         "technical",
-        label === "200æ—¥å‡çº¿" ? "medium" : "low",
-        `${isAbove ? "çªç ´" : "è·Œç ´"}${label}`,
-        `${quote.ticker} å½“å‰ä»·æ ¼ ${isAbove ? "é«˜äºŽ" : "ä½ŽäºŽ"} ${label}ã€‚`,
+        label === "200日均线" ? "medium" : "low",
+        `${isAbove ? "突破" : "跌破"}${label}`,
+        `${quote.ticker} 当前价格 ${isAbove ? "高于" : "低于"} ${label}。`,
         `${formatMoney(price)} / ${formatMoney(average)}`,
         "fallback",
         context.quote
@@ -166,8 +166,8 @@ function getVolumeAlerts(context: MarketContext): RadarAlertV2[] {
       context.quote.ticker,
       "volume",
       riskLevel,
-      "å¼‚å¸¸æˆäº¤é‡",
-      `ä»Šæ—¥æˆäº¤é‡çº¦ä¸º20æ—¥å‡é‡çš„ ${context.volumeRatio.toFixed(1)} å€ã€‚`,
+      "异常成交量",
+      `今日成交量约为20日均量的 ${context.volumeRatio.toFixed(1)} 倍。`,
       `${context.volumeRatio.toFixed(1)}x`,
       "fallback",
       context.quote
@@ -178,13 +178,13 @@ function getVolumeAlerts(context: MarketContext): RadarAlertV2[] {
 function getRsiAlerts(context: MarketContext): RadarAlertV2[] {
   if (context.rsi === null) return [];
   if (context.rsi > 70) {
-    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…ä¹°é£Žé™©", `${context.quote.ticker} RSI é«˜äºŽ 70ã€‚`, String(context.rsi), "fallback", context.quote)];
+    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSI超买风险", `${context.quote.ticker} RSI 高于 70。`, String(context.rsi), "fallback", context.quote)];
   }
   if (context.rsi < 25) {
-    return [makeAlert(context.quote.ticker, "rsi", "high", "RSIæžç«¯è¶…å–", `${context.quote.ticker} RSI ä½ŽäºŽ 25ã€‚`, String(context.rsi), "fallback", context.quote)];
+    return [makeAlert(context.quote.ticker, "rsi", "high", "RSI极端超卖", `${context.quote.ticker} RSI 低于 25。`, String(context.rsi), "fallback", context.quote)];
   }
   if (context.rsi < 30) {
-    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…å–æœºä¼š", `${context.quote.ticker} RSI ä½ŽäºŽ 30ã€‚`, String(context.rsi), "fallback", context.quote)];
+    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSI超卖机会", `${context.quote.ticker} RSI 低于 30。`, String(context.rsi), "fallback", context.quote)];
   }
   return [];
 }
@@ -209,19 +209,19 @@ function getHoldingAlerts(holdings: Holding[], contexts: Map<string, MarketConte
     const alerts: RadarAlertV2[] = [];
 
     if ((context.quote.changesPercentage ?? 0) <= -5) {
-      alerts.push(makeAlert(ticker, "holding", "high", "æœ€å¤§æŒä»“å•æ—¥å¤§è·Œ", `${ticker} å•æ—¥è·Œå¹…è¶…è¿‡5%ã€‚`, formatPercent(context.quote.changesPercentage ?? 0), context.source, context.quote));
+      alerts.push(makeAlert(ticker, "holding", "high", "最大持仓单日大跌", `${ticker} 单日跌幅超过5%。`, formatPercent(context.quote.changesPercentage ?? 0), context.source, context.quote));
     }
 
     if (price < cost) {
-      alerts.push(makeAlert(ticker, "holding", "medium", "è·Œç ´æˆæœ¬ä»·", `${ticker} å½“å‰ä»·æ ¼ä½ŽäºŽå¹³å‡æˆæœ¬ã€‚`, `${formatMoney(price)} / æˆæœ¬ ${formatMoney(cost)}`, context.source, context.quote));
+      alerts.push(makeAlert(ticker, "holding", "medium", "跌破成本价", `${ticker} 当前价格低于平均成本。`, `${formatMoney(price)} / 成本 ${formatMoney(cost)}`, context.source, context.quote));
     }
 
     if (pnlPercent >= 30) {
-      alerts.push(makeAlert(ticker, "holding", "low", "æŒä»“ç›ˆåˆ©è¶…è¿‡30%", `${ticker} æœªå®žçŽ°æ”¶ç›Šè¶…è¿‡30%ã€‚`, formatPercent(pnlPercent), context.source, context.quote));
+      alerts.push(makeAlert(ticker, "holding", "low", "持仓盈利超过30%", `${ticker} 未实现收益超过30%。`, formatPercent(pnlPercent), context.source, context.quote));
     }
 
     if (allocation >= 40 && (context.quote.changesPercentage ?? 0) <= -3) {
-      alerts.push(makeAlert(ticker, "holding", "high", "é«˜ä»“ä½è‚¡ç¥¨å¤§è·Œ", `${ticker} ä»“ä½è¶…è¿‡40%ï¼Œä¸”ä»Šæ—¥ä¸‹è·Œæ˜Žæ˜¾ã€‚`, `${formatPercent(allocation)} / ${formatPercent(context.quote.changesPercentage ?? 0)}`, context.source, context.quote));
+      alerts.push(makeAlert(ticker, "holding", "high", "高仓位股票大跌", `${ticker} 仓位超过40%，且今日下跌明显。`, `${formatPercent(allocation)} / ${formatPercent(context.quote.changesPercentage ?? 0)}`, context.source, context.quote));
     }
 
     return alerts;
@@ -235,9 +235,9 @@ function getEarningsAlerts(context: MarketContext): RadarAlertV2[] {
         context.quote.ticker,
         "earnings",
         "low",
-        "æš‚æ— è´¢æŠ¥æ—¥æœŸ",
-        `${context.quote.ticker} æš‚æ— å¯ç”¨è´¢æŠ¥æ—¥æœŸï¼ŒåŽç»­å¯æŽ¥å…¥çœŸå®žè´¢æŠ¥æ—¥åŽ†ã€‚`,
-        "æš‚æ— è´¢æŠ¥æ—¥æœŸ",
+        "暂无财报日期",
+        `${context.quote.ticker} 暂无可用财报日期，后续可接入真实财报日历。`,
+        "暂无财报日期",
         "mock"
       )
     ];
@@ -305,5 +305,7 @@ function getAlertDataStatus(source: RadarAlertSource, quote?: Quote): RadarAlert
   if (quote?.source === "cache") return "cache";
   return "fresh";
 }
+
+
 
 

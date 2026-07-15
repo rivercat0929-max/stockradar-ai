@@ -28,7 +28,7 @@ type AiScoreSummary = {
   changesPercentage: number;
   assetType?: "ETF";
   scoreMode?: "full" | "market_only" | "estimated";
-  dataSource?: "çœŸå®žæ•°æ®" | "ç¼“å­˜æ•°æ®" | "ä¼°ç®—æ•°æ®" | "ç¤ºä¾‹æ•°æ®";
+  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
   stale?: boolean;
 };
 
@@ -383,7 +383,7 @@ function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; erro
           {score.ratingLabel ? `${score.rating} / ${score.ratingLabel}` : getAiRatingLabel(score.rating)}
         </span>
         {score.scoreMode === "market_only" ? <p className="text-xs text-slate-400">{t("marketOnlyScore")}</p> : null}
-        {score.scoreMode === "estimated" ? <p className="text-xs text-slate-400">å«ä¼°ç®—ç»´åº¦</p> : null}
+        {score.scoreMode === "estimated" ? <p className="text-xs text-slate-400">含估算维度</p> : null}
         {score.assetType === "ETF" ? <p className="text-xs text-slate-400">{t("etfDataNotice")}</p> : null}
         {score.stale ? <p className="text-xs text-amber-200">{t("usingCachedData")}</p> : null}
         {score.dataSource ? <p className="text-xs text-slate-400">{score.dataSource}</p> : null}
@@ -402,11 +402,11 @@ function getAccountName(accounts: PortfolioAccount[], accountId?: string) {
 }
 
 function getAiRatingLabel(rating: string) {
-  if (rating === "Strong Buy") return "Strong Buy / å¼ºçƒˆä¹°å…¥è§‚å¯Ÿ";
-  if (rating === "Buy") return "Buy / ä¹°å…¥è§‚å¯Ÿ";
-  if (rating === "Hold") return "Hold / æŒæœ‰è§‚å¯Ÿ";
-  if (rating === "Watch") return "Watch / è°¨æ…Žè§‚å¯Ÿ";
-  if (rating === "Avoid") return "Avoid / å›žé¿";
+  if (rating === "Strong Buy") return "Strong Buy / 强烈买入观察";
+  if (rating === "Buy") return "Buy / 买入观察";
+  if (rating === "Hold") return "Hold / 持有观察";
+  if (rating === "Watch") return "Watch / 谨慎观察";
+  if (rating === "Avoid") return "Avoid / 回避";
   return rating;
 }
 
@@ -470,4 +470,5 @@ function optionalText(value: string) {
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
+
 
