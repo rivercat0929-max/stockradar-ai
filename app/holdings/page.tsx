@@ -41,7 +41,7 @@ export default function HoldingsPage() {
   const [holdings, setHoldings] = useState<Holding[]>([]);
   const [editing, setEditing] = useState<Holding | null>(null);
   const [showForm, setShowForm] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
+  const [holdingsLoading, setHoldingsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiScores, setAiScores] = useState<Record<string, AiScoreSummary>>({});
@@ -120,19 +120,19 @@ export default function HoldingsPage() {
   }, [holdings, selectedAccountId]);
 
   const totalCost = useMemo(
-    () => filteredHoldings.reduce((sum, holding) => sum + (holding.totalCost ?? holding.shares * holding.averageCost), 0),
-    [filteredHoldings]
+    () => holdingsLoading ? null : filteredHoldings.reduce((sum, holding) => sum + (holding.totalCost ?? holding.shares * holding.averageCost), 0),
+    [filteredHoldings, holdingsLoading]
   );
   const totalMarketValue = useMemo(
-    () => filteredHoldings.reduce((sum, holding) => sum + (holding.marketValue ?? 0), 0),
-    [filteredHoldings]
+    () => holdingsLoading ? null : filteredHoldings.reduce((sum, holding) => sum + (isFiniteNumber(holding.marketValue) ? holding.marketValue : 0), 0),
+    [filteredHoldings, holdingsLoading]
   );
-  const totalUnrealizedPL = totalMarketValue - totalCost;
-  const totalReturnPercent = totalCost > 0 ? (totalUnrealizedPL / totalCost) * 100 : 0;
-  const isUsingFallbackPrices = filteredHoldings.some((holding) => holding.marketDataSource === "yahoo" || holding.marketDataSource === "mock");
+  const totalUnrealizedPL = isFiniteNumber(totalMarketValue) && isFiniteNumber(totalCost) ? totalMarketValue - totalCost : null;
+  const totalReturnPercent = isFiniteNumber(totalUnrealizedPL) && isFiniteNumber(totalCost) && totalCost > 0 ? (totalUnrealizedPL / totalCost) * 100 : null;
+  const isUsingFallbackPrices = !holdingsLoading && filteredHoldings.some((holding) => holding.marketDataSource === "yahoo" || holding.marketDataSource === "mock");
 
   async function loadPortfolioData() {
-    setIsLoading(true);
+    setHoldingsLoading(true);
     setError(null);
 
     try {
@@ -147,13 +147,26 @@ export default function HoldingsPage() {
       if (!holdingsResponse.ok) throw new Error(holdingsData.error ?? t("loadHoldingsError"));
 
       setAccounts(accountsData);
-      setHoldings(holdingsData);
+      setHoldings(Array.isArray(holdingsData) ? holdingsData : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t("loadHoldingsError"));
+      setHoldings([]);
     } finally {
-      setIsLoading(false);
+      setHoldingsLoading(false);
     }
   }
+
+  /*
+   * The summary must not be computed from the initial empty array while holdings
+   * are still loading. That brief $0/empty state looks like data loss to users.
+   */
+  const summaryCards = [
+    { label: t("holdingsCount"), value: holdingsLoading ? "--" : filteredHoldings.length.toLocaleString() },
+    { label: t("totalCostBasis"), value: holdingsLoading ? "--" : formatNullableCurrency(totalCost) },
+    { label: t("totalMarketValue"), value: holdingsLoading ? "--" : formatNullableCurrency(totalMarketValue) },
+    { label: t("totalUnrealizedPL"), value: holdingsLoading ? "--" : formatNullableSignedCurrency(totalUnrealizedPL), tone: getNullableTone(totalUnrealizedPL) },
+    { label: t("totalReturn"), value: holdingsLoading ? "--" : formatNullablePercent(totalReturnPercent), tone: getNullableTone(totalUnrealizedPL) }
+  ] satisfies Array<{ label: string; value: string; tone?: "neutral" | "gain" | "loss" }>;
 
   async function saveHolding(values: HoldingFormValues) {
     const payload = editing ? { id: editing.id, ...toPayload(values) } : toPayload(values);
@@ -244,11 +257,9 @@ export default function HoldingsPage() {
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-          <SummaryCard label={t("holdingsCount")} value={filteredHoldings.length.toLocaleString()} />
-          <SummaryCard label={t("totalCostBasis")} value={formatCurrency(totalCost)} />
-          <SummaryCard label={t("totalMarketValue")} value={formatCurrency(totalMarketValue)} />
-          <SummaryCard label={t("totalUnrealizedPL")} value={formatSignedCurrency(totalUnrealizedPL)} tone={totalUnrealizedPL >= 0 ? "gain" : "loss"} />
-          <SummaryCard label={t("totalReturn")} value={formatPercent(totalReturnPercent)} tone={totalUnrealizedPL >= 0 ? "gain" : "loss"} />
+          {summaryCards.map((card) => (
+            <SummaryCard key={card.label} label={card.label} value={card.value} tone={card.tone} />
+          ))}
         </div>
         {isUsingFallbackPrices ? (
           <p className="mt-4 rounded-md border border-amber-500/40 bg-amber-950/40 px-3 py-2 text-sm text-amber-100">
@@ -266,7 +277,7 @@ export default function HoldingsPage() {
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
         <div className="mb-4 flex items-center justify-between gap-3">
           <h2 className="text-lg font-semibold">{t("holdingList")}</h2>
-          {isLoading || isLoadingAiScores ? <span className="text-sm text-slate-400">{isLoading ? t("loading") : t("loadingAiScores")}</span> : null}
+          {holdingsLoading || isLoadingAiScores ? <span className="text-sm text-slate-400">{holdingsLoading ? "正在加载持仓..." : t("loadingAiScores")}</span> : null}
         </div>
 
         <div className="overflow-x-auto">
@@ -294,7 +305,13 @@ export default function HoldingsPage() {
               </tr>
             </thead>
             <tbody>
-              {!isLoading && filteredHoldings.length === 0 ? (
+              {holdingsLoading ? (
+                <tr>
+                  <td colSpan={13} className="px-3 py-8 text-center text-slate-400">
+                    正在加载持仓...
+                  </td>
+                </tr>
+              ) : filteredHoldings.length === 0 ? (
                 <tr>
                   <td colSpan={13} className="px-3 py-8 text-center text-slate-400">
                     {t("noHoldings")}
@@ -302,7 +319,7 @@ export default function HoldingsPage() {
                 </tr>
               ) : null}
               {filteredHoldings.map((holding) => {
-                const allocation = totalMarketValue > 0 ? ((holding.marketValue ?? 0) / totalMarketValue) * 100 : 0;
+                const allocation = isFiniteNumber(totalMarketValue) && totalMarketValue > 0 && isFiniteNumber(holding.marketValue) ? (holding.marketValue / totalMarketValue) * 100 : null;
                 const ticker = holding.ticker.trim().toUpperCase();
                 const aiScore = aiScores[ticker];
                 const aiScoreError = aiScoreErrors[ticker];
@@ -314,15 +331,15 @@ export default function HoldingsPage() {
                     <td className="border-b border-slate-800 px-3 py-3 text-slate-300">{holding.companyName ?? "-"}</td>
                     <td className="border-b border-slate-800 px-3 py-3">{holding.shares.toLocaleString()}</td>
                     <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.averageCost)}</td>
-                    <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.currentPrice ?? 0)}</td>
-                    <td className="border-b border-slate-800 px-3 py-3">{formatCurrency(holding.marketValue ?? 0)}</td>
-                    <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
+                    <td className="border-b border-slate-800 px-3 py-3">{formatNullableCurrency(holding.currentPrice)}</td>
+                    <td className="border-b border-slate-800 px-3 py-3">{formatNullableCurrency(holding.marketValue)}</td>
+                    <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL)}`}>
                       {formatNullableSignedCurrency(holding.unrealizedPL)}
                     </td>
-                    <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL ?? 0)}`}>
+                    <td className={`border-b border-slate-800 px-3 py-3 ${getGainLossClass(holding.unrealizedPL)}`}>
                       {formatNullablePercent(holding.unrealizedPLPercent)}
                     </td>
-                    <td className="border-b border-slate-800 px-3 py-3">{formatPercent(allocation)}</td>
+                    <td className="border-b border-slate-800 px-3 py-3">{formatNullablePercent(allocation)}</td>
                     <td className="border-b border-slate-800 px-3 py-3">
                       <AiScoreCell score={aiScore} error={aiScoreError} isLoading={isLoadingAiScores} />
                     </td>
@@ -448,10 +465,22 @@ function formatPercent(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
 }
 
-function getGainLossClass(value: number) {
+function getGainLossClass(value: number | null | undefined) {
+  if (!isFiniteNumber(value)) return "text-slate-300";
   if (value > 0) return "text-green-300";
   if (value < 0) return "text-red-300";
   return "text-slate-300";
+}
+
+function getNullableTone(value: number | null | undefined): "neutral" | "gain" | "loss" {
+  if (!isFiniteNumber(value)) return "neutral";
+  if (value > 0) return "gain";
+  if (value < 0) return "loss";
+  return "neutral";
+}
+
+function isFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function toPayload(values: HoldingFormValues): SavePayload {

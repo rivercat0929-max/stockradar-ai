@@ -40,14 +40,14 @@ export default function DashboardPage() {
   const [aiRadarScores, setAiRadarScores] = useState<AiScoreSummary[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [aiRadarError, setAiRadarError] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [holdingsLoading, setHoldingsLoading] = useState(true);
   const [isAiRadarLoading, setIsAiRadarLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadDashboard() {
-      setIsLoading(true);
+      setHoldingsLoading(true);
       setIsAiRadarLoading(true);
       setDashboardError(null);
       setAiRadarError(null);
@@ -86,7 +86,7 @@ export default function DashboardPage() {
         }
       } finally {
         if (!cancelled) {
-          setIsLoading(false);
+          setHoldingsLoading(false);
           setIsAiRadarLoading(false);
         }
       }
@@ -99,9 +99,9 @@ export default function DashboardPage() {
     };
   }, [t]);
 
-  const summary = useMemo(() => getDashboardSummary(holdings), [holdings]);
+  const summary = useMemo(() => holdingsLoading ? null : getDashboardSummary(holdings), [holdings, holdingsLoading]);
   const topAiRadarScores = useMemo(() => [...aiRadarScores].sort((a, b) => b.score - a.score).slice(0, 3), [aiRadarScores]);
-  const holdingRows = useMemo(() => holdings.filter((holding) => typeof holding.currentPrice === "number" && Number.isFinite(holding.currentPrice)).slice(0, 5), [holdings]);
+  const holdingRows = useMemo(() => holdings.slice(0, 5), [holdings]);
 
   return (
     <div className="space-y-6">
@@ -110,10 +110,10 @@ export default function DashboardPage() {
       {dashboardError ? <p className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{dashboardError}</p> : null}
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard label="数据状态" value={isLoading ? "加载中" : summary.dataStatus} detail="首页仅使用真实持仓与统一行情服务" tone="blue" />
-        <MetricCard label={t("portfolioMarketValue")} value={formatNullableCurrency(summary.totalMarketValue)} detail={`${t("todayPL")} ${formatNullableSignedCurrency(summary.todayChangeValue)} / ${formatNullablePercent(summary.todayChangePercent)}`} tone="green" />
-        <MetricCard label={t("largestHolding")} value={summary.largestHolding ? `${summary.largestHolding.ticker} ${formatPercent(summary.largestHolding.allocation)}` : "暂无持仓"} detail={summary.largestHolding ? `当前价 ${formatNullableCurrency(summary.largestHolding.currentPrice)}` : "添加持仓后显示真实占比"} tone="amber" />
-        <MetricCard label={t("portfolioRiskLevel")} value={summary.riskLevel} detail={summary.riskNote} tone={summary.riskLevel === "暂无数据" ? "neutral" : summary.riskLevel === "偏高" ? "red" : "green"} />
+        <MetricCard label="数据状态" value={holdingsLoading ? "正在加载" : summary?.dataStatus ?? "暂无数据"} detail={holdingsLoading ? "正在加载持仓..." : "首页仅使用真实持仓与统一行情服务"} tone="blue" />
+        <MetricCard label={t("portfolioMarketValue")} value={holdingsLoading ? "--" : formatNullableCurrency(summary?.totalMarketValue)} detail={holdingsLoading ? "正在加载持仓..." : `${t("todayPL")} ${formatNullableSignedCurrency(summary?.todayChangeValue)} / ${formatNullablePercent(summary?.todayChangePercent)}`} tone="green" />
+        <MetricCard label={t("largestHolding")} value={holdingsLoading ? "正在加载" : summary?.largestHolding ? `${summary.largestHolding.ticker} ${formatPercent(summary.largestHolding.allocation)}` : "暂无持仓"} detail={holdingsLoading ? "正在加载持仓..." : summary?.largestHolding ? `当前价 ${formatNullableCurrency(summary.largestHolding.currentPrice)}` : "添加持仓后显示真实占比"} tone="amber" />
+        <MetricCard label={t("portfolioRiskLevel")} value={holdingsLoading ? "正在加载" : summary?.riskLevel ?? "暂无数据"} detail={holdingsLoading ? "正在加载持仓..." : summary?.riskNote ?? "添加持仓后显示集中度"} tone={holdingsLoading || summary?.riskLevel === "暂无数据" ? "neutral" : summary?.riskLevel === "偏高" ? "red" : "green"} />
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
@@ -122,13 +122,13 @@ export default function DashboardPage() {
             <h2 className="text-lg font-semibold">持仓行情摘要</h2>
             <p className="mt-1 text-sm text-muted">基于 `/api/holdings` 与统一 market-data 服务计算。</p>
           </div>
-          {isLoading ? <span className="text-sm text-muted">正在加载...</span> : null}
+          {holdingsLoading ? <span className="text-sm text-muted">正在加载持仓...</span> : null}
         </div>
 
-        {holdings.length === 0 ? (
+        {holdingsLoading ? (
+          <LoadingState message="正在加载持仓..." />
+        ) : holdings.length === 0 ? (
           <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">暂无持仓。首页不会自动显示示例股票。</p>
-        ) : holdingRows.length === 0 ? (
-          <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">持仓已加载，但行情暂不可用。当前价显示为 --。</p>
         ) : (
           <DataTable
             columns={[t("ticker"), t("shares"), t("currentPrice"), "数据来源", t("marketValue"), t("unrealizedPL")]}
@@ -214,6 +214,10 @@ function getDashboardSummary(holdings: DashboardHolding[]) {
     riskLevel: !largest ? "暂无数据" : largest.allocation >= 35 ? "偏高" : "正常",
     riskNote: !largest ? "添加持仓后显示集中度" : largest.allocation >= 35 ? "最大持仓占比较高，请复核仓位纪律" : "最大持仓占比在可观察范围内"
   };
+}
+
+function LoadingState({ message }: { message: string }) {
+  return <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">{message}</p>;
 }
 
 function formatNullableCurrency(value: number | null | undefined) {
