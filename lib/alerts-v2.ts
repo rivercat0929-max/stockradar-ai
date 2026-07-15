@@ -1,4 +1,4 @@
-﻿import { getQuote, type Quote } from "@/lib/market-data";
+﻿import { getQuote, type MarketDataSource, type Quote } from "@/lib/market-data";
 import type { Holding } from "@/lib/types";
 
 export type RadarAlertCategory = "technical" | "volume" | "rsi" | "holding" | "earnings";
@@ -14,6 +14,11 @@ export type RadarAlertV2 = {
   message: string;
   valueLabel: string;
   source: RadarAlertSource;
+  marketSource: MarketDataSource;
+  originalSource?: "fmp" | "yahoo" | null;
+  updatedAt: string | null;
+  isStale: boolean;
+  dataStatus: "fresh" | "cache" | "stale" | "mock";
   createdAt: string;
 };
 
@@ -95,7 +100,7 @@ export async function generateRadarAlertsV2({
 }
 
 function buildMarketContext(quote: Quote): MarketContext {
-  const source: RadarAlertSource = quote.marketDataSource === "fmp" && !quote.stale ? "real" : quote.marketDataSource === "mock" ? "mock" : "fallback";
+  const source: RadarAlertSource = (quote.source === "fmp" || quote.source === "yahoo") && !quote.stale ? "real" : quote.source === "mock" ? "mock" : "fallback";
   const price = quote.price ?? 0;
   const move = quote.changesPercentage ?? 0;
   const seed = getTickerSeed(quote.ticker);
@@ -116,15 +121,16 @@ function buildMarketContext(quote: Quote): MarketContext {
 
 function getTechnicalAlerts(context: MarketContext): RadarAlertV2[] {
   const { quote } = context;
+  if (quote.source === 'stale-cache' || quote.isStale || quote.stale) return [];
   const price = quote.price ?? 0;
   const alerts: RadarAlertV2[] = [];
 
   if (quote.yearHigh && price >= quote.yearHigh * 0.995) {
-    alerts.push(makeAlert(quote.ticker, "technical", "high", "åˆ›52å‘¨æ–°é«˜", `${quote.ticker} æŽ¥è¿‘æˆ–çªç ´52å‘¨é«˜ç‚¹ã€‚`, formatMoney(price), context.source));
+    alerts.push(makeAlert(quote.ticker, "technical", "high", "åˆ›52å‘¨æ–°é«˜", `${quote.ticker} æŽ¥è¿‘æˆ–çªç ´52å‘¨é«˜ç‚¹ã€‚`, formatMoney(price), context.source, context.quote));
   }
 
   if (quote.yearLow && price <= quote.yearLow * 1.005) {
-    alerts.push(makeAlert(quote.ticker, "technical", "high", "è·Œç ´52å‘¨ä½Žç‚¹", `${quote.ticker} æŽ¥è¿‘æˆ–è·Œç ´52å‘¨ä½Žç‚¹ã€‚`, formatMoney(price), context.source));
+    alerts.push(makeAlert(quote.ticker, "technical", "high", "è·Œç ´52å‘¨ä½Žç‚¹", `${quote.ticker} æŽ¥è¿‘æˆ–è·Œç ´52å‘¨ä½Žç‚¹ã€‚`, formatMoney(price), context.source, context.quote));
   }
 
   [
@@ -142,7 +148,8 @@ function getTechnicalAlerts(context: MarketContext): RadarAlertV2[] {
         `${isAbove ? "çªç ´" : "è·Œç ´"}${label}`,
         `${quote.ticker} å½“å‰ä»·æ ¼ ${isAbove ? "é«˜äºŽ" : "ä½ŽäºŽ"} ${label}ã€‚`,
         `${formatMoney(price)} / ${formatMoney(average)}`,
-        "fallback"
+        "fallback",
+        context.quote
       )
     );
   });
@@ -162,7 +169,8 @@ function getVolumeAlerts(context: MarketContext): RadarAlertV2[] {
       "å¼‚å¸¸æˆäº¤é‡",
       `ä»Šæ—¥æˆäº¤é‡çº¦ä¸º20æ—¥å‡é‡çš„ ${context.volumeRatio.toFixed(1)} å€ã€‚`,
       `${context.volumeRatio.toFixed(1)}x`,
-      "fallback"
+      "fallback",
+      context.quote
     )
   ];
 }
@@ -170,13 +178,13 @@ function getVolumeAlerts(context: MarketContext): RadarAlertV2[] {
 function getRsiAlerts(context: MarketContext): RadarAlertV2[] {
   if (context.rsi === null) return [];
   if (context.rsi > 70) {
-    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…ä¹°é£Žé™©", `${context.quote.ticker} RSI é«˜äºŽ 70ã€‚`, String(context.rsi), "fallback")];
+    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…ä¹°é£Žé™©", `${context.quote.ticker} RSI é«˜äºŽ 70ã€‚`, String(context.rsi), "fallback", context.quote)];
   }
   if (context.rsi < 25) {
-    return [makeAlert(context.quote.ticker, "rsi", "high", "RSIæžç«¯è¶…å–", `${context.quote.ticker} RSI ä½ŽäºŽ 25ã€‚`, String(context.rsi), "fallback")];
+    return [makeAlert(context.quote.ticker, "rsi", "high", "RSIæžç«¯è¶…å–", `${context.quote.ticker} RSI ä½ŽäºŽ 25ã€‚`, String(context.rsi), "fallback", context.quote)];
   }
   if (context.rsi < 30) {
-    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…å–æœºä¼š", `${context.quote.ticker} RSI ä½ŽäºŽ 30ã€‚`, String(context.rsi), "fallback")];
+    return [makeAlert(context.quote.ticker, "rsi", "medium", "RSIè¶…å–æœºä¼š", `${context.quote.ticker} RSI ä½ŽäºŽ 30ã€‚`, String(context.rsi), "fallback", context.quote)];
   }
   return [];
 }
@@ -191,6 +199,7 @@ function getHoldingAlerts(holdings: Holding[], contexts: Map<string, MarketConte
     const ticker = holding.ticker.trim().toUpperCase();
     const context = contexts.get(ticker);
     if (!context) return [];
+    if (context.quote.source === "stale-cache" || context.quote.isStale || context.quote.stale) return [];
 
     const price = context.quote.price ?? 0;
     const cost = holding.averageCost;
@@ -200,19 +209,19 @@ function getHoldingAlerts(holdings: Holding[], contexts: Map<string, MarketConte
     const alerts: RadarAlertV2[] = [];
 
     if ((context.quote.changesPercentage ?? 0) <= -5) {
-      alerts.push(makeAlert(ticker, "holding", "high", "æœ€å¤§æŒä»“å•æ—¥å¤§è·Œ", `${ticker} å•æ—¥è·Œå¹…è¶…è¿‡5%ã€‚`, formatPercent(context.quote.changesPercentage ?? 0), context.source));
+      alerts.push(makeAlert(ticker, "holding", "high", "æœ€å¤§æŒä»“å•æ—¥å¤§è·Œ", `${ticker} å•æ—¥è·Œå¹…è¶…è¿‡5%ã€‚`, formatPercent(context.quote.changesPercentage ?? 0), context.source, context.quote));
     }
 
     if (price < cost) {
-      alerts.push(makeAlert(ticker, "holding", "medium", "è·Œç ´æˆæœ¬ä»·", `${ticker} å½“å‰ä»·æ ¼ä½ŽäºŽå¹³å‡æˆæœ¬ã€‚`, `${formatMoney(price)} / æˆæœ¬ ${formatMoney(cost)}`, context.source));
+      alerts.push(makeAlert(ticker, "holding", "medium", "è·Œç ´æˆæœ¬ä»·", `${ticker} å½“å‰ä»·æ ¼ä½ŽäºŽå¹³å‡æˆæœ¬ã€‚`, `${formatMoney(price)} / æˆæœ¬ ${formatMoney(cost)}`, context.source, context.quote));
     }
 
     if (pnlPercent >= 30) {
-      alerts.push(makeAlert(ticker, "holding", "low", "æŒä»“ç›ˆåˆ©è¶…è¿‡30%", `${ticker} æœªå®žçŽ°æ”¶ç›Šè¶…è¿‡30%ã€‚`, formatPercent(pnlPercent), context.source));
+      alerts.push(makeAlert(ticker, "holding", "low", "æŒä»“ç›ˆåˆ©è¶…è¿‡30%", `${ticker} æœªå®žçŽ°æ”¶ç›Šè¶…è¿‡30%ã€‚`, formatPercent(pnlPercent), context.source, context.quote));
     }
 
     if (allocation >= 40 && (context.quote.changesPercentage ?? 0) <= -3) {
-      alerts.push(makeAlert(ticker, "holding", "high", "é«˜ä»“ä½è‚¡ç¥¨å¤§è·Œ", `${ticker} ä»“ä½è¶…è¿‡40%ï¼Œä¸”ä»Šæ—¥ä¸‹è·Œæ˜Žæ˜¾ã€‚`, `${formatPercent(allocation)} / ${formatPercent(context.quote.changesPercentage ?? 0)}`, context.source));
+      alerts.push(makeAlert(ticker, "holding", "high", "é«˜ä»“ä½è‚¡ç¥¨å¤§è·Œ", `${ticker} ä»“ä½è¶…è¿‡40%ï¼Œä¸”ä»Šæ—¥ä¸‹è·Œæ˜Žæ˜¾ã€‚`, `${formatPercent(allocation)} / ${formatPercent(context.quote.changesPercentage ?? 0)}`, context.source, context.quote));
     }
 
     return alerts;
@@ -237,7 +246,7 @@ function getEarningsAlerts(context: MarketContext): RadarAlertV2[] {
   return [];
 }
 
-function makeAlert(ticker: string, category: RadarAlertCategory, riskLevel: RadarAlertRisk, title: string, message: string, valueLabel: string, source: RadarAlertSource): RadarAlertV2 {
+function makeAlert(ticker: string, category: RadarAlertCategory, riskLevel: RadarAlertRisk, title: string, message: string, valueLabel: string, source: RadarAlertSource, quote?: Quote): RadarAlertV2 {
   return {
     id: `${ticker}-${category}-${title}-${valueLabel}`,
     ticker,
@@ -247,6 +256,11 @@ function makeAlert(ticker: string, category: RadarAlertCategory, riskLevel: Rada
     message,
     valueLabel,
     source,
+    marketSource: quote?.source ?? (source === "mock" ? "mock" : "unavailable"),
+    originalSource: quote?.originalSource ?? null,
+    updatedAt: quote?.updatedAt ?? null,
+    isStale: Boolean(quote?.isStale || quote?.stale || quote?.source === "stale-cache"),
+    dataStatus: getAlertDataStatus(source, quote),
     createdAt: new Date().toISOString()
   };
 }
@@ -282,5 +296,14 @@ function formatPercent(value: number) {
   return `${value.toFixed(1)}%`;
 }
 
+
+
+
+function getAlertDataStatus(source: RadarAlertSource, quote?: Quote): RadarAlertV2["dataStatus"] {
+  if (source === "mock" || quote?.source === "mock") return "mock";
+  if (quote?.source === "stale-cache" || quote?.isStale || quote?.stale) return "stale";
+  if (quote?.source === "cache") return "cache";
+  return "fresh";
+}
 
 

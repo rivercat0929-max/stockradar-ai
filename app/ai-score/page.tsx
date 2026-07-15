@@ -1,18 +1,20 @@
-"use client";
+﻿"use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { DataSourceBadge } from "@/components/data-source-badge";
 import { useLanguage } from "@/components/language-provider";
+import type { MarketQuote } from "@/lib/market-data";
 import { PageHeader } from "@/components/page-header";
 
-type DataSource = "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+type DataSource = "çœŸå®žæ•°æ®" | "ç¼“å­˜æ•°æ®" | "ä¼°ç®—æ•°æ®" | "ç¤ºä¾‹æ•°æ®";
 
 type AiScoreResponse = {
   ticker: string;
-  price: number;
+  price: number | null;
   pe: number | null;
   eps: number | null;
   marketCap: number | null;
-  changesPercentage: number;
+  changesPercentage: number | null;
   score: number;
   rating: "Strong Buy" | "Buy" | "Hold" | "Watch" | "Avoid" | string;
   ratingLabel: string;
@@ -34,6 +36,7 @@ type AiScoreResponse = {
   assetType?: "ETF";
   scoreMode?: "full" | "market_only" | "estimated";
   stale?: boolean;
+  marketQuote: MarketQuote;
 };
 
 export default function AiScorePage() {
@@ -61,13 +64,13 @@ export default function AiScorePage() {
       const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(data.error ?? "评分暂不可用，请稍后重试");
+        throw new Error(data.error ?? "è¯„åˆ†æš‚ä¸å¯ç”¨ï¼Œè¯·ç¨åŽé‡è¯•");
       }
 
       setResult(data);
     } catch {
       setResult(null);
-      setError("评分暂不可用，请稍后重试");
+      setError("è¯„åˆ†æš‚ä¸å¯ç”¨ï¼Œè¯·ç¨åŽé‡è¯•");
     } finally {
       setIsLoading(false);
     }
@@ -76,15 +79,15 @@ export default function AiScorePage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="AI 股票评分 V2"
-        eyebrow="六维投资评分报告"
-        description="基于趋势、成长、估值、盈利、情绪和风险六个维度生成投资研究评分。"
+        title="AI è‚¡ç¥¨è¯„åˆ† V2"
+        eyebrow="å…­ç»´æŠ•èµ„è¯„åˆ†æŠ¥å‘Š"
+        description="åŸºäºŽè¶‹åŠ¿ã€æˆé•¿ã€ä¼°å€¼ã€ç›ˆåˆ©ã€æƒ…ç»ªå’Œé£Žé™©å…­ä¸ªç»´åº¦ç”ŸæˆæŠ•èµ„ç ”ç©¶è¯„åˆ†ã€‚"
       />
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <form onSubmit={analyze} className="flex flex-col gap-3 sm:flex-row sm:items-end">
           <label className="flex-1 text-sm">
-            <span className="font-medium text-ink">股票代码</span>
+            <span className="font-medium text-ink">è‚¡ç¥¨ä»£ç </span>
             <input
               value={ticker}
               onChange={(event) => setTicker(event.target.value.toUpperCase())}
@@ -97,7 +100,7 @@ export default function AiScorePage() {
             disabled={isLoading}
             className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading ? "分析中..." : "开始分析"}
+            {isLoading ? "åˆ†æžä¸­..." : "å¼€å§‹åˆ†æž"}
           </button>
         </form>
 
@@ -130,30 +133,30 @@ export default function AiScorePage() {
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <span className={`rounded-md px-3 py-1 text-sm font-semibold ${getRatingClass(result.rating)}`}>{result.rating} / {result.ratingLabel}</span>
-                {result.scoreMode === "market_only" ? <span className="rounded-md bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">市场走势评分</span> : null}
-                {result.scoreMode === "estimated" ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">含估算维度</span> : null}
-                {result.assetType === "ETF" ? <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">ETF/基金</span> : null}
-                {result.stale ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">使用缓存数据</span> : null}
+                {result.scoreMode === "market_only" ? <span className="rounded-md bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">å¸‚åœºèµ°åŠ¿è¯„åˆ†</span> : null}
+                {result.scoreMode === "estimated" ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">å«ä¼°ç®—ç»´åº¦</span> : null}
+                {result.assetType === "ETF" ? <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">ETF/åŸºé‡‘</span> : null}
+                {result.stale ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">ä½¿ç”¨ç¼“å­˜æ•°æ®</span> : null}
               </div>
               <p className="mt-4 rounded-md border border-line bg-panel p-4 text-sm leading-6 text-muted">{result.aiSummary}</p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-              <Metric label="当前价格" value={formatCurrency(result.price)} />
+              <Metric label="å½“å‰ä»·æ ¼" value={formatNullableCurrency(result.price)} extra={<DataSourceBadge quote={result.marketQuote} />} />
               <Metric label="PE" value={formatOptionalNumber(result.pe)} />
               <Metric label="EPS" value={formatOptionalNumber(result.eps)} />
-              <Metric label="市值" value={formatMarketCap(result.marketCap)} />
-              <Metric label="涨跌幅" value={formatPercent(result.changesPercentage)} tone={result.changesPercentage >= 0 ? "gain" : "loss"} />
+              <Metric label="å¸‚å€¼" value={formatMarketCap(result.marketCap)} />
+              <Metric label="æ¶¨è·Œå¹…" value={formatNullablePercent(result.changesPercentage)} tone={(result.changesPercentage ?? 0) >= 0 ? "gain" : "loss"} />
             </div>
           </section>
 
           <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-ink">六维评分</h2>
-                <p className="mt-1 text-sm text-muted">趋势20%、成长20%、估值15%、盈利15%、情绪15%、风险15%。</p>
+                <h2 className="text-lg font-semibold text-ink">å…­ç»´è¯„åˆ†</h2>
+                <p className="mt-1 text-sm text-muted">è¶‹åŠ¿20%ã€æˆé•¿20%ã€ä¼°å€¼15%ã€ç›ˆåˆ©15%ã€æƒ…ç»ª15%ã€é£Žé™©15%ã€‚</p>
               </div>
-              <span className="text-sm font-semibold text-muted">加权总分 {result.score}/100</span>
+              <span className="text-sm font-semibold text-muted">åŠ æƒæ€»åˆ† {result.score}/100</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               {result.dimensions.map((item) => (
@@ -163,17 +166,17 @@ export default function AiScorePage() {
           </section>
 
           <section className="grid gap-6 lg:grid-cols-2">
-            <InsightList title="优势" items={result.strengths} tone="positive" />
-            <InsightList title="风险" items={result.risks} tone="risk" />
+            <InsightList title="ä¼˜åŠ¿" items={result.strengths} tone="positive" />
+            <InsightList title="é£Žé™©" items={result.risks} tone="risk" />
           </section>
 
           <section className="grid gap-6 lg:grid-cols-[1fr_1fr]">
             <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-              <h2 className="text-lg font-semibold text-ink">适合投资者类型</h2>
+              <h2 className="text-lg font-semibold text-ink">é€‚åˆæŠ•èµ„è€…ç±»åž‹</h2>
               <p className="mt-4 rounded-md border border-line bg-panel p-4 text-sm leading-6 text-muted">{result.investorProfile}</p>
             </section>
             <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-              <h2 className="text-lg font-semibold text-ink">数据来源标签</h2>
+              <h2 className="text-lg font-semibold text-ink">æ•°æ®æ¥æºæ ‡ç­¾</h2>
               <div className="mt-4 space-y-2">
                 {result.dataSourceDetails.map((detail) => (
                   <p key={detail} className="rounded-md border border-line bg-panel px-3 py-2 text-sm text-muted">{detail}</p>
@@ -183,28 +186,29 @@ export default function AiScorePage() {
           </section>
 
           <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-            <h2 className="text-lg font-semibold text-ink">AI投资报告</h2>
+            <h2 className="text-lg font-semibold text-ink">AIæŠ•èµ„æŠ¥å‘Š</h2>
             <div className="mt-4 space-y-4 text-sm leading-6 text-muted">
               <p>{result.aiSummary}</p>
-              <p>评分越高代表当前数据下的综合观察价值越强，但不代表一定上涨。请结合仓位、行业集中度、财报事件和个人风险承受能力独立判断。</p>
-              {result.assetType === "ETF" ? <p>ETF/基金可能没有 PE 或 EPS，因此成长、估值、盈利维度包含规则估算，适合用作走势雷达，不适合作为基本面结论。</p> : null}
+              <p>è¯„åˆ†è¶Šé«˜ä»£è¡¨å½“å‰æ•°æ®ä¸‹çš„ç»¼åˆè§‚å¯Ÿä»·å€¼è¶Šå¼ºï¼Œä½†ä¸ä»£è¡¨ä¸€å®šä¸Šæ¶¨ã€‚è¯·ç»“åˆä»“ä½ã€è¡Œä¸šé›†ä¸­åº¦ã€è´¢æŠ¥äº‹ä»¶å’Œä¸ªäººé£Žé™©æ‰¿å—èƒ½åŠ›ç‹¬ç«‹åˆ¤æ–­ã€‚</p>
+              {result.assetType === "ETF" ? <p>ETF/åŸºé‡‘å¯èƒ½æ²¡æœ‰ PE æˆ– EPSï¼Œå› æ­¤æˆé•¿ã€ä¼°å€¼ã€ç›ˆåˆ©ç»´åº¦åŒ…å«è§„åˆ™ä¼°ç®—ï¼Œé€‚åˆç”¨ä½œèµ°åŠ¿é›·è¾¾ï¼Œä¸é€‚åˆä½œä¸ºåŸºæœ¬é¢ç»“è®ºã€‚</p> : null}
             </div>
           </section>
         </>
       ) : null}
 
-      <p className="text-xs text-muted">本评分仅用于投资教育和研究，不构成财务建议。</p>
+      <p className="text-xs text-muted">æœ¬è¯„åˆ†ä»…ç”¨äºŽæŠ•èµ„æ•™è‚²å’Œç ”ç©¶ï¼Œä¸æž„æˆè´¢åŠ¡å»ºè®®ã€‚</p>
     </div>
   );
 }
 
-function Metric({ label, value, tone = "neutral" }: { label: string; value: string; tone?: "neutral" | "gain" | "loss" }) {
+function Metric({ label, value, tone = "neutral", extra }: { label: string; value: string; tone?: "neutral" | "gain" | "loss"; extra?: ReactNode }) {
   const toneClass = tone === "gain" ? "text-green-600" : tone === "loss" ? "text-red-600" : "text-ink";
 
   return (
     <div className="rounded-lg border border-line bg-white p-4 shadow-soft">
       <p className="text-sm text-muted">{label}</p>
       <p className={`mt-2 text-lg font-semibold ${toneClass}`}>{value}</p>
+      {extra ? <div className="mt-2">{extra}</div> : null}
     </div>
   );
 }
@@ -215,7 +219,7 @@ function DimensionBar({ item }: { item: AiScoreResponse["dimensions"][number] })
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="font-semibold text-ink">{item.name}</p>
-          <p className="mt-1 text-xs text-muted">权重 {item.weight}% · 加权 {item.weightedScore.toFixed(1)}</p>
+          <p className="mt-1 text-xs text-muted">æƒé‡ {item.weight}% Â· åŠ æƒ {item.weightedScore.toFixed(1)}</p>
         </div>
         <div className="flex items-center gap-2">
           <SourceBadge source={item.source} />
@@ -250,9 +254,9 @@ function SourceBadge({ source }: { source: DataSource }) {
 }
 
 function getSourceClass(source: DataSource) {
-  if (source === "真实数据") return "bg-green-100 text-green-700";
-  if (source === "缓存数据") return "bg-amber-100 text-amber-800";
-  if (source === "估算数据") return "bg-blue-100 text-blue-700";
+  if (source === "çœŸå®žæ•°æ®") return "bg-green-100 text-green-700";
+  if (source === "ç¼“å­˜æ•°æ®") return "bg-amber-100 text-amber-800";
+  if (source === "ä¼°ç®—æ•°æ®") return "bg-blue-100 text-blue-700";
   return "bg-purple-100 text-purple-700";
 }
 
@@ -271,13 +275,21 @@ function getRatingClass(rating: string) {
   return "bg-red-100 text-red-700";
 }
 
+function formatNullableCurrency(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? formatCurrency(value) : "--";
+}
+
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
 }
 
 function formatOptionalNumber(value: number | null) {
-  if (value === null) return "-";
+  if (value === null) return "--";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 }).format(value);
+}
+
+function formatNullablePercent(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? formatPercent(value) : "--";
 }
 
 function formatPercent(value: number) {
@@ -285,8 +297,10 @@ function formatPercent(value: number) {
 }
 
 function formatMarketCap(value: number | null) {
-  if (value === null) return "-";
+  if (value === null) return "--";
   if (value >= 1_000_000_000_000) return `$${formatOptionalNumber(value / 1_000_000_000_000)}T`;
   if (value >= 1_000_000_000) return `$${formatOptionalNumber(value / 1_000_000_000)}B`;
   return `$${formatOptionalNumber(value / 1_000_000)}M`;
 }
+
+

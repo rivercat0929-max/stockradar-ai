@@ -1,7 +1,9 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DataSourceBadge } from "@/components/data-source-badge";
 import { useLanguage } from "@/components/language-provider";
+import type { MarketDataSource, MarketQuote } from "@/lib/market-data";
 import { PageHeader } from "@/components/page-header";
 
 type AlertType = "price_above" | "price_below" | "score_above" | "score_below";
@@ -17,12 +19,13 @@ type AlertCheckResult = {
   ticker: string;
   score: number;
   rating: string;
-  price: number;
-  changesPercentage: number;
+  price: number | null;
+  changesPercentage: number | null;
   assetType?: "ETF";
   scoreMode?: "full" | "market_only" | "estimated";
-  dataSource?: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+  dataSource?: "çœŸå®žæ•°æ®" | "ç¼“å­˜æ•°æ®" | "ä¼°ç®—æ•°æ®" | "ç¤ºä¾‹æ•°æ®";
   stale?: boolean;
+  marketQuote?: MarketQuote;
 };
 
 type AdvancedAlert = {
@@ -34,6 +37,11 @@ type AdvancedAlert = {
   message: string;
   valueLabel: string;
   source: "real" | "fallback" | "mock";
+  marketSource: MarketDataSource;
+  originalSource?: "fmp" | "yahoo" | null;
+  updatedAt: string | null;
+  isStale: boolean;
+  dataStatus: "fresh" | "cache" | "stale" | "mock";
   createdAt: string;
 };
 
@@ -125,10 +133,10 @@ export default function AlertsPage() {
       const response = await fetch(`/api/alerts?tickers=${encodeURIComponent(tickers.join(","))}`, { cache: "no-store" });
       const data = await response.json();
       setAdvancedAlerts(data);
-      if (Array.isArray(data.errors) && data.errors.length) setAdvancedMessage("部分数据源暂时不可用，已使用 fallback/mock 数据继续生成预警。");
+      if (Array.isArray(data.errors) && data.errors.length) setAdvancedMessage("éƒ¨åˆ†æ•°æ®æºæš‚æ—¶ä¸å¯ç”¨ï¼Œå·²ä½¿ç”¨ fallback/mock æ•°æ®ç»§ç»­ç”Ÿæˆé¢„è­¦ã€‚");
     } catch {
       setAdvancedAlerts(null);
-      setAdvancedMessage("高级预警暂时不可用，请稍后再试。");
+      setAdvancedMessage("é«˜çº§é¢„è­¦æš‚æ—¶ä¸å¯ç”¨ï¼Œè¯·ç¨åŽå†è¯•ã€‚");
     } finally {
       setIsLoadingAdvancedAlerts(false);
     }
@@ -230,7 +238,7 @@ export default function AlertsPage() {
       <PageHeader
         title={t("alerts")}
         eyebrow="Radar Alerts V2"
-        description="高级股票雷达：技术突破、异常成交量、RSI、持仓风险和财报提醒。"
+        description="é«˜çº§è‚¡ç¥¨é›·è¾¾ï¼šæŠ€æœ¯çªç ´ã€å¼‚å¸¸æˆäº¤é‡ã€RSIã€æŒä»“é£Žé™©å’Œè´¢æŠ¥æé†’ã€‚"
         action={
           <button
             type="button"
@@ -241,7 +249,7 @@ export default function AlertsPage() {
             disabled={isLoading || isLoadingAdvancedAlerts}
             className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isLoading || isLoadingAdvancedAlerts ? "加载中..." : "刷新雷达"}
+            {isLoading || isLoadingAdvancedAlerts ? "åŠ è½½ä¸­..." : "åˆ·æ–°é›·è¾¾"}
           </button>
         }
       />
@@ -249,77 +257,77 @@ export default function AlertsPage() {
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold">今日重点预警</h2>
-            <p className="mt-1 text-sm text-muted">优先展示高风险技术、持仓和成交量信号。</p>
+            <h2 className="text-lg font-semibold">ä»Šæ—¥é‡ç‚¹é¢„è­¦</h2>
+            <p className="mt-1 text-sm text-muted">ä¼˜å…ˆå±•ç¤ºé«˜é£Žé™©æŠ€æœ¯ã€æŒä»“å’Œæˆäº¤é‡ä¿¡å·ã€‚</p>
           </div>
-          {isLoadingAdvancedAlerts ? <span className="text-sm text-muted">正在扫描...</span> : null}
+          {isLoadingAdvancedAlerts ? <span className="text-sm text-muted">æ­£åœ¨æ‰«æ...</span> : null}
         </div>
         {advancedMessage ? <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{advancedMessage}</p> : null}
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {(advancedAlerts?.todayHighlights ?? []).length ? (
             advancedAlerts!.todayHighlights.map((alert) => <AdvancedAlertCard key={alert.id} alert={alert} />)
           ) : (
-            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2 xl:col-span-3">暂无高风险重点预警。</p>
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2 xl:col-span-3">æš‚æ— é«˜é£Žé™©é‡ç‚¹é¢„è­¦ã€‚</p>
           )}
         </div>
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">筛选预警</h2>
-          <p className="text-sm text-muted">当前显示 {filteredAdvancedAlerts.length} 条</p>
+          <h2 className="text-lg font-semibold">ç­›é€‰é¢„è­¦</h2>
+          <p className="text-sm text-muted">å½“å‰æ˜¾ç¤º {filteredAdvancedAlerts.length} æ¡</p>
         </div>
         <form onSubmit={applyAdvancedFilters} className="mt-4 grid gap-3 md:grid-cols-[1fr_1fr_1fr_auto_auto] md:items-end">
           <label className="text-sm">
-            <span className="font-medium text-ink">预警类型</span>
+            <span className="font-medium text-ink">é¢„è­¦ç±»åž‹</span>
             <select value={draftCategoryFilter} onChange={(event) => setDraftCategoryFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
-              <option value="all">全部类型</option>
-              <option value="technical">技术突破</option>
-              <option value="volume">异常成交量</option>
+              <option value="all">å…¨éƒ¨ç±»åž‹</option>
+              <option value="technical">æŠ€æœ¯çªç ´</option>
+              <option value="volume">å¼‚å¸¸æˆäº¤é‡</option>
               <option value="rsi">RSI</option>
-              <option value="holding">持仓相关</option>
-              <option value="earnings">财报</option>
+              <option value="holding">æŒä»“ç›¸å…³</option>
+              <option value="earnings">è´¢æŠ¥</option>
             </select>
           </label>
           <label className="text-sm">
-            <span className="font-medium text-ink">风险等级</span>
+            <span className="font-medium text-ink">é£Žé™©ç­‰çº§</span>
             <select value={draftRiskFilter} onChange={(event) => setDraftRiskFilter(event.target.value)} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal">
-              <option value="all">全部等级</option>
-              <option value="high">高风险</option>
-              <option value="medium">中风险</option>
-              <option value="low">低风险</option>
+              <option value="all">å…¨éƒ¨ç­‰çº§</option>
+              <option value="high">é«˜é£Žé™©</option>
+              <option value="medium">ä¸­é£Žé™©</option>
+              <option value="low">ä½Žé£Žé™©</option>
             </select>
           </label>
           <label className="text-sm">
-            <span className="font-medium text-ink">股票代码</span>
+            <span className="font-medium text-ink">è‚¡ç¥¨ä»£ç </span>
             <input value={draftTickerFilter} onChange={(event) => setDraftTickerFilter(event.target.value.toUpperCase())} className="mt-1 w-full rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal" placeholder="TSLA" />
           </label>
           <button type="submit" className="rounded-md bg-signal px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600">
-            应用筛选
+            åº”ç”¨ç­›é€‰
           </button>
           <button type="button" onClick={resetAdvancedFilters} className="rounded-md border border-line bg-white px-4 py-2 text-sm font-semibold text-muted hover:border-slate-400 hover:text-ink">
-            重置
+            é‡ç½®
           </button>
         </form>
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <h2 className="text-lg font-semibold">持仓相关预警专区</h2>
+        <h2 className="text-lg font-semibold">æŒä»“ç›¸å…³é¢„è­¦ä¸“åŒº</h2>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           {(advancedAlerts?.holdingAlerts ?? []).length ? (
             advancedAlerts!.holdingAlerts.map((alert) => <AdvancedAlertCard key={alert.id} alert={alert} />)
           ) : (
-            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2">暂无持仓相关预警。</p>
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted md:col-span-2">æš‚æ— æŒä»“ç›¸å…³é¢„è­¦ã€‚</p>
           )}
         </div>
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-semibold">历史预警列表</h2>
+          <h2 className="text-lg font-semibold">åŽ†å²é¢„è­¦åˆ—è¡¨</h2>
           {advancedAlerts ? (
             <p className="text-xs text-muted">
-              真实：{advancedAlerts.dataSources.real.length} / Fallback：{advancedAlerts.dataSources.fallback.length} / Mock：{advancedAlerts.dataSources.mock.length}
+              çœŸå®žï¼š{advancedAlerts.dataSources.real.length} / Fallbackï¼š{advancedAlerts.dataSources.fallback.length} / Mockï¼š{advancedAlerts.dataSources.mock.length}
             </p>
           ) : null}
         </div>
@@ -327,13 +335,13 @@ export default function AlertsPage() {
           {filteredAdvancedAlerts.length ? (
             filteredAdvancedAlerts.map((alert) => <AdvancedAlertRow key={alert.id} alert={alert} />)
           ) : (
-            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted">没有符合筛选条件的预警。</p>
+            <p className="rounded-md border border-line bg-panel px-3 py-6 text-sm text-muted">æ²¡æœ‰ç¬¦åˆç­›é€‰æ¡ä»¶çš„é¢„è­¦ã€‚</p>
           )}
         </div>
       </section>
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
-        <h2 className="mb-4 text-lg font-semibold">自定义价格 / AI 评分预警</h2>
+        <h2 className="mb-4 text-lg font-semibold">è‡ªå®šä¹‰ä»·æ ¼ / AI è¯„åˆ†é¢„è­¦</h2>
         <form onSubmit={addAlert} className="grid gap-4 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end">
           <label className="text-sm">
             <span className="font-medium text-ink">{t("ticker")}</span>
@@ -392,7 +400,7 @@ export default function AlertsPage() {
             <table className="min-w-[920px] border-separate border-spacing-0 text-left text-sm">
               <thead>
                 <tr>
-                  {[t("ticker"), t("condition"), t("targetValue"), t("currentPrice"), t("aiScore"), t("status"), t("actions")].map((column) => (
+                  {[t("ticker"), t("condition"), t("targetValue"), t("currentPrice"), "数据来源", t("aiScore"), t("status"), t("actions")].map((column) => (
                     <th key={column} className="border-b border-line bg-panel px-3 py-3 font-semibold text-muted first:rounded-l-md last:rounded-r-md">
                       {column}
                     </th>
@@ -411,7 +419,7 @@ export default function AlertsPage() {
                       <td className="border-b border-line px-3 py-3 text-muted">{getAlertTypeLabel(alert.alertType, t)}</td>
                       <td className="border-b border-line px-3 py-3">{formatNumber(alert.targetValue)}</td>
                       <td className="border-b border-line px-3 py-3">
-                        {result ? formatCurrency(result.price) : <span className="text-muted">-</span>}
+                        {result ? formatNullableCurrency(result.price) : <span className="text-muted">--</span>}
                         {result?.stale ? <p className="text-xs text-amber-700">{t("usingCachedData")}</p> : null}
                       </td>
                       <td className="border-b border-line px-3 py-3">
@@ -419,7 +427,7 @@ export default function AlertsPage() {
                           <div>
                             <p>{result.score}/100</p>
                             {result.scoreMode === "market_only" ? <p className="text-xs text-muted">{t("marketOnlyScore")}</p> : null}
-                            {result.scoreMode === "estimated" ? <p className="text-xs text-muted">含估算维度</p> : null}
+                            {result.scoreMode === "estimated" ? <p className="text-xs text-muted">å«ä¼°ç®—ç»´åº¦</p> : null}
                             {result.assetType === "ETF" ? <p className="text-xs text-muted">{t("etfDataNotice")}</p> : null}
                             {result.dataSource ? <p className="text-xs text-muted">{result.dataSource}</p> : null}
                           </div>
@@ -472,8 +480,9 @@ function isAlertType(value: unknown): value is AlertType {
 }
 
 function isAlertTriggered(alert: RadarAlert, result: AlertCheckResult) {
-  if (alert.alertType === "price_above") return result.price > alert.targetValue;
-  if (alert.alertType === "price_below") return result.price < alert.targetValue;
+  if ((alert.alertType === "price_above" || alert.alertType === "price_below") && result.price === null) return false;
+  if (alert.alertType === "price_above") return (result.price ?? 0) > alert.targetValue;
+  if (alert.alertType === "price_below") return (result.price ?? 0) < alert.targetValue;
   if (alert.alertType === "score_above") return result.score > alert.targetValue;
   return result.score < alert.targetValue;
 }
@@ -483,6 +492,10 @@ function getAlertTypeLabel(alertType: AlertType, t: ReturnType<typeof useLanguag
   if (alertType === "price_below") return t("priceBelow");
   if (alertType === "score_above") return t("scoreAbove");
   return t("scoreBelow");
+}
+
+function formatNullableCurrency(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? formatCurrency(value) : "--";
 }
 
 function formatCurrency(value: number) {
@@ -498,13 +511,14 @@ function AdvancedAlertCard({ alert }: { alert: AdvancedAlert }) {
     <div className={`rounded-lg border p-4 ${getRiskCardClass(alert.riskLevel)}`}>
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-semibold text-muted">{getCategoryLabel(alert.category)} / {getSourceLabel(alert.source)}</p>
+          <p className="text-xs font-semibold text-muted">{getCategoryLabel(alert.category)} / {getSourceLabel(alert.source)} / {getDataStatusLabel(alert)}</p>
           <h3 className="mt-1 font-semibold text-ink">{alert.ticker} - {alert.title}</h3>
         </div>
         <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getRiskBadgeClass(alert.riskLevel)}`}>{getRiskLabel(alert.riskLevel)}</span>
       </div>
       <p className="mt-3 text-sm text-muted">{alert.message}</p>
       <p className="mt-2 text-sm font-semibold text-signal">{alert.valueLabel}</p>
+      <div className="mt-3"><DataSourceBadge source={alert.marketSource} updatedAt={alert.updatedAt} /></div>
     </div>
   );
 }
@@ -521,27 +535,27 @@ function AdvancedAlertRow({ alert }: { alert: AdvancedAlert }) {
         <p className="font-medium">{alert.title}</p>
         <p className="text-muted">{alert.message}</p>
       </div>
-      <p className="font-semibold text-signal">{alert.valueLabel}</p>
+      <div><p className="font-semibold text-signal">{alert.valueLabel}</p><p className="text-xs text-muted">{getDataStatusLabel(alert)}</p></div>
     </div>
   );
 }
 
 function getCategoryLabel(category: AdvancedAlert["category"]) {
-  if (category === "technical") return "技术突破";
-  if (category === "volume") return "异常成交量";
+  if (category === "technical") return "æŠ€æœ¯çªç ´";
+  if (category === "volume") return "å¼‚å¸¸æˆäº¤é‡";
   if (category === "rsi") return "RSI";
-  if (category === "holding") return "持仓相关";
-  return "财报";
+  if (category === "holding") return "æŒä»“ç›¸å…³";
+  return "è´¢æŠ¥";
 }
 
 function getRiskLabel(riskLevel: AdvancedAlert["riskLevel"]) {
-  if (riskLevel === "high") return "高风险";
-  if (riskLevel === "medium") return "中风险";
-  return "低风险";
+  if (riskLevel === "high") return "é«˜é£Žé™©";
+  if (riskLevel === "medium") return "ä¸­é£Žé™©";
+  return "ä½Žé£Žé™©";
 }
 
 function getSourceLabel(source: AdvancedAlert["source"]) {
-  if (source === "real") return "真实数据";
+  if (source === "real") return "çœŸå®žæ•°æ®";
   if (source === "fallback") return "Fallback";
   return "Mock";
 }
@@ -557,3 +571,16 @@ function getRiskCardClass(riskLevel: AdvancedAlert["riskLevel"]) {
   if (riskLevel === "medium") return "border-amber-200 bg-amber-50";
   return "border-line bg-panel";
 }
+
+function getDataStatusLabel(alert: AdvancedAlert) {
+  if (alert.dataStatus === "stale") return "基于过期缓存";
+  if (alert.marketSource === "unavailable") return "本次未检查";
+  if (alert.dataStatus === "cache") return "缓存数据";
+  if (alert.marketSource === "fmp") return "真实数据 · FMP";
+  if (alert.marketSource === "yahoo") return "真实数据 · Yahoo";
+  if (alert.dataStatus === "mock") return "示例数据";
+  return "数据状态未知";
+}
+
+
+
