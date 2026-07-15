@@ -1,8 +1,36 @@
 import type { RadarAlertsV2Result, RadarAlertV2 } from "@/lib/alerts-v2";
-import type { EventCalendarResult, CalendarEvent } from "@/lib/calendar";
 import type { Holding } from "@/lib/types";
 
 export type DailyReportDataSourceLabel = "真实数据" | "缓存数据" | "静态数据" | "示例数据";
+
+export type CalendarEvent = {
+  id: string;
+  date: string;
+  ticker?: string;
+  accountName?: string;
+  type: "earnings" | "dividend" | "split" | "product" | "fomc" | "cpi" | "nonfarm";
+  title: string;
+  description: string;
+  riskLevel: "低" | "中" | "高";
+  impact: "正面" | "中性" | "负面";
+  aiAnalysis: string;
+  isHoldingEvent: boolean;
+  source: "real" | "fallback" | "mock";
+};
+
+export type EventCalendarResult = {
+  todayEvents: CalendarEvent[];
+  highRiskEvents: CalendarEvent[];
+  nextFomc: CalendarEvent | null;
+  timeline: CalendarEvent[];
+  holdingEvents: CalendarEvent[];
+  dataSources: {
+    real: string[];
+    fallback: string[];
+    mock: string[];
+  };
+  errors: string[];
+};
 
 export type DailyReportHoldingItem = {
   ticker: string;

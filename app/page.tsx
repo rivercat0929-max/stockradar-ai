@@ -7,6 +7,7 @@ import { useLanguage } from "@/components/language-provider";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
 import { ScoreBadge } from "@/components/score-badge";
+import type { MarketEvent } from "@/lib/events/types";
 import type { MarketQuote } from "@/lib/market-data";
 import type { Holding } from "@/lib/types";
 
@@ -38,10 +39,13 @@ export default function DashboardPage() {
   const { t } = useLanguage();
   const [holdings, setHoldings] = useState<DashboardHolding[]>([]);
   const [aiRadarScores, setAiRadarScores] = useState<AiScoreSummary[]>([]);
+  const [upcomingEvents, setUpcomingEvents] = useState<MarketEvent[]>([]);
   const [dashboardError, setDashboardError] = useState<string | null>(null);
   const [aiRadarError, setAiRadarError] = useState<string | null>(null);
+  const [eventsError, setEventsError] = useState<string | null>(null);
   const [holdingsLoading, setHoldingsLoading] = useState(true);
   const [isAiRadarLoading, setIsAiRadarLoading] = useState(true);
+  const [isEventsLoading, setIsEventsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -49,8 +53,10 @@ export default function DashboardPage() {
     async function loadDashboard() {
       setHoldingsLoading(true);
       setIsAiRadarLoading(true);
+      setIsEventsLoading(true);
       setDashboardError(null);
       setAiRadarError(null);
+      setEventsError(null);
 
       try {
         const holdingsResponse = await fetch("/api/holdings", { cache: "no-store" });
@@ -62,6 +68,8 @@ export default function DashboardPage() {
         setHoldings(nextHoldings);
 
         const tickers = Array.from(new Set(nextHoldings.map((holding) => holding.ticker.trim().toUpperCase()).filter(Boolean)));
+        await loadUpcomingEvents(tickers, cancelled);
+
         if (!tickers.length) {
           setAiRadarScores([]);
           return;
@@ -81,13 +89,45 @@ export default function DashboardPage() {
         if (!cancelled) {
           setHoldings([]);
           setAiRadarScores([]);
+          setUpcomingEvents([]);
           setDashboardError("首页数据暂时不可用，请稍后刷新。");
           setAiRadarError(t("aiRadarUnavailable"));
+          setEventsError("事件数据暂时不可用。");
         }
       } finally {
         if (!cancelled) {
           setHoldingsLoading(false);
           setIsAiRadarLoading(false);
+          setIsEventsLoading(false);
+        }
+      }
+    }
+
+    async function loadUpcomingEvents(tickers: string[], cancelled: boolean) {
+      const range = getDateRange(7);
+      try {
+        const params = new URLSearchParams({ from: range.from, to: range.to });
+        if (tickers.length) params.set("symbols", tickers.join(","));
+        const response = await fetch(`/api/events?${params.toString()}`, { cache: "no-store" });
+        const payload = await response.json();
+        if (cancelled) return;
+        const rawEvents = Array.isArray(payload.data) ? (payload.data as MarketEvent[]) : [];
+        setUpcomingEvents(
+          rawEvents
+            .filter((event) => {
+              const isHoldingCompanyEvent = Boolean(event.symbol && tickers.includes(event.symbol) && (event.type === "earnings" || event.type === "dividend"));
+              const isHighMacro = !event.symbol && event.importance === "high";
+              return isHoldingCompanyEvent || isHighMacro;
+            })
+            .slice(0, 5)
+        );
+        if (!response.ok || (Array.isArray(payload.warnings) && payload.warnings.length)) {
+          setEventsError("部分事件数据暂时不可用。");
+        }
+      } catch {
+        if (!cancelled) {
+          setUpcomingEvents([]);
+          setEventsError("事件数据暂时不可用。");
         }
       }
     }
@@ -183,6 +223,34 @@ export default function DashboardPage() {
         <h2 className="text-lg font-semibold">市场机会</h2>
         <p className="mt-3 rounded-md border border-line bg-panel px-3 py-4 text-sm text-muted">暂无真实机会数据源。旧的固定机会股票和 mock 评分列表已隐藏。</p>
       </section>
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold">未来7天重要事件</h2>
+            <p className="mt-1 text-sm text-muted">仅显示当前持仓相关财报/除息和高重要性宏观事件。</p>
+          </div>
+          {isEventsLoading ? <span className="text-sm text-muted">正在加载事件...</span> : null}
+        </div>
+        {eventsError ? <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">{eventsError}</p> : null}
+        {isEventsLoading ? (
+          <LoadingState message="正在加载未来事件..." />
+        ) : upcomingEvents.length ? (
+          <DataTable
+            columns={["日期", "事件", t("ticker"), "重要性", "日期状态", "数据来源"]}
+            rows={upcomingEvents.map((event) => [
+              formatEventDate(event.startAt),
+              event.title,
+              event.symbol ?? "--",
+              getImportanceLabel(event.importance),
+              event.dateStatus === "confirmed" ? "日期已确认" : "预计日期",
+              getEventSourceLabel(event)
+            ])}
+          />
+        ) : (
+          <p className="rounded-md border border-line bg-panel px-3 py-4 text-sm text-muted">未来7天暂无已确认的重要事件</p>
+        )}
+      </section>
     </div>
   );
 }
@@ -218,6 +286,37 @@ function getDashboardSummary(holdings: DashboardHolding[]) {
 
 function LoadingState({ message }: { message: string }) {
   return <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">{message}</p>;
+}
+
+function getDateRange(days: number) {
+  const today = new Date();
+  const end = new Date(today);
+  end.setDate(today.getDate() + days);
+  return { from: today.toISOString().slice(0, 10), to: end.toISOString().slice(0, 10) };
+}
+
+function formatEventDate(value: string) {
+  const date = value.slice(0, 10);
+  const parsed = new Date(`${date}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return date || "--";
+  return new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", weekday: "short" }).format(parsed);
+}
+
+function getImportanceLabel(importance: MarketEvent["importance"]) {
+  if (importance === "high") return "高重要性";
+  if (importance === "medium") return "中重要性";
+  return "低重要性";
+}
+
+function getEventSourceLabel(event: MarketEvent) {
+  if (event.source === "fmp") return "真实数据 · FMP";
+  if (event.source === "federal-reserve") return "官方数据 · Federal Reserve";
+  if (event.source === "bls") return "官方数据 · BLS";
+  if (event.source === "bea") return "官方数据 · BEA";
+  if (event.source === "cache") return "缓存数据";
+  if (event.source === "stale-cache") return "过期缓存";
+  if (event.source === "unavailable") return "数据暂时不可用";
+  return event.sourceName;
 }
 
 function formatNullableCurrency(value: number | null | undefined) {
