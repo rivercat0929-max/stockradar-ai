@@ -81,8 +81,8 @@ export default function CalendarPage() {
       ]);
       const holdingsData = await holdingsResponse.json().catch(() => []);
       const watchlistData = await watchlistResponse.json().catch(() => ({ items: [] }));
-      const nextHoldings = Array.isArray(holdingsData) ? holdingsData : [];
-      const nextWatchlist = Array.isArray(watchlistData.items) ? watchlistData.items : [];
+      const nextHoldings = readArrayPayload<HoldingLike>(holdingsData);
+      const nextWatchlist = readArrayPayload<WatchlistLike>(watchlistData, "items");
       const nextSymbols = Array.from(new Set([...getSymbols(nextHoldings), ...getSymbols(nextWatchlist)]));
 
       setHoldings(nextHoldings);
@@ -298,6 +298,16 @@ function getRange(mode: RangeMode) {
 
 function getSymbols(items: Array<{ ticker?: string | null }>) {
   return Array.from(new Set(items.map((item) => item.ticker?.trim().toUpperCase()).filter(Boolean) as string[]));
+}
+
+function readArrayPayload<T>(payload: unknown, legacyKey?: string): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.data)) return record.data as T[];
+    if (legacyKey && Array.isArray(record[legacyKey])) return record[legacyKey] as T[];
+  }
+  return [];
 }
 
 function formatDate(date: string) {

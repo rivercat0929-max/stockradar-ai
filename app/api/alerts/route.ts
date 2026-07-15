@@ -8,17 +8,18 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
+    const headers = { cookie: request.headers.get("cookie") ?? "" };
     const { searchParams } = new URL(request.url);
     const tickers = (searchParams.get("tickers") ?? "")
       .split(",")
       .map((ticker) => ticker.trim().toUpperCase())
       .filter(Boolean);
-    const holdingsResponse = await fetch(new URL("/api/holdings", request.url), { cache: "no-store" });
-    const watchlistResponse = await fetch(new URL("/api/watchlist", request.url), { cache: "no-store" });
+    const holdingsResponse = await fetch(new URL("/api/holdings", request.url), { cache: "no-store", headers });
+    const watchlistResponse = await fetch(new URL("/api/watchlist", request.url), { cache: "no-store", headers });
     const holdingsData = await holdingsResponse.json();
     const watchlistData = await watchlistResponse.json();
-    const holdings = Array.isArray(holdingsData) ? (holdingsData as Holding[]) : [];
-    const watchlistItems = Array.isArray(watchlistData.items) ? (watchlistData.items as WatchlistRecord[]) : [];
+    const holdings = Array.isArray(holdingsData?.data) ? (holdingsData.data as Holding[]) : Array.isArray(holdingsData) ? (holdingsData as Holding[]) : [];
+    const watchlistItems = Array.isArray(watchlistData?.data) ? (watchlistData.data as WatchlistRecord[]) : Array.isArray(watchlistData.items) ? (watchlistData.items as WatchlistRecord[]) : [];
     const watchlistHoldings = toHoldingLikeWatchlistItems(watchlistItems) as Holding[];
 
     return Response.json(await generateRadarAlertsV2({ tickers, holdings: [...holdings, ...watchlistHoldings] }));

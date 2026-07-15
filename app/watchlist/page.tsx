@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { DataSyncStatus, type DataSyncState } from "@/components/data-sync-status";
+import { LocalStorageMigrationCard } from "@/components/local-storage-migration-card";
 import { PageHeader } from "@/components/page-header";
 import type { PortfolioAccount } from "@/lib/types";
 import { watchlistGroups, type EnrichedWatchlistItem, type WatchlistGroup } from "@/lib/watchlist";
@@ -39,6 +41,7 @@ export default function WatchlistPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<DataSyncState>("syncing");
 
   useEffect(() => {
     loadWatchlist();
@@ -65,13 +68,15 @@ export default function WatchlistPage() {
       const watchlistData = await watchlistResponse.json();
       const accountsData = await accountsResponse.json();
 
-      setItems(Array.isArray(watchlistData.items) ? watchlistData.items : []);
+      setItems(readArrayPayload<EnrichedWatchlistItem>(watchlistData, "items"));
       setAccounts(Array.isArray(accountsData) ? accountsData : []);
       if (!watchlistResponse.ok) throw new Error(watchlistData.error ?? "自选股加载失败。");
       if (watchlistData.error) setError(watchlistData.error);
+      setSyncState("synced");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "自选股加载失败。");
       setItems([]);
+      setSyncState("cloud-unavailable");
     } finally {
       setIsLoading(false);
     }
@@ -100,13 +105,17 @@ export default function WatchlistPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "自选股保存失败。");
+      const savedItem = readObjectPayload<EnrichedWatchlistItem>(data);
+      if (!savedItem) throw new Error("自选股保存失败。");
 
-      setItems((current) => (editingId ? current.map((item) => (item.id === data.id ? data : item)) : [data, ...current.filter((item) => item.id !== data.id)]));
+      setItems((current) => (editingId ? current.map((item) => (item.id === savedItem.id ? savedItem : item)) : [savedItem, ...current.filter((item) => item.id !== savedItem.id)]));
       setForm(emptyForm);
       setEditingId(null);
       setMessage(editingId ? "已更新自选股。" : "已添加到自选股。");
+      setSyncState("synced");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : "自选股保存失败。");
+      setSyncState("failed");
     } finally {
       setIsSaving(false);
     }
@@ -129,8 +138,10 @@ export default function WatchlistPage() {
       setItems((current) => current.filter((currentItem) => currentItem.id !== item.id));
       if (editingId === item.id) cancelEdit();
       setMessage(`已删除 ${item.ticker}。`);
+      setSyncState("synced");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : "删除失败。");
+      setSyncState("failed");
     }
   }
 
@@ -202,6 +213,9 @@ export default function WatchlistPage() {
           </button>
         }
       />
+
+      <LocalStorageMigrationCard />
+      <DataSyncStatus state={syncState} detail={syncState === "cloud-unavailable" ? "云端暂时不可用，本地备份不会被清空" : null} />
 
       <section className="grid gap-4 md:grid-cols-3">
         <SummaryCard label="自选股数量" value={items.length.toString()} />
@@ -391,4 +405,24 @@ function formatCurrency(value: number) {
 
 function formatPercent(value: number) {
   return `${value >= 0 ? "+" : ""}${value.toFixed(2)}%`;
+}
+
+function readArrayPayload<T>(payload: unknown, legacyKey?: string): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.data)) return record.data as T[];
+    if (legacyKey && Array.isArray(record[legacyKey])) return record[legacyKey] as T[];
+  }
+  return [];
+}
+
+function readObjectPayload<T>(payload: unknown): T | null {
+  if (payload && typeof payload === "object") {
+    const record = payload as Record<string, unknown>;
+    if (record.data && typeof record.data === "object") return record.data as T;
+    if (record.item && typeof record.item === "object") return record.item as T;
+    return payload as T;
+  }
+  return null;
 }

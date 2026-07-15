@@ -9,7 +9,7 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
-    const holdings = await loadHoldings(request.url);
+    const holdings = await loadHoldings(request);
     const alerts = await generateRadarAlertsV2({ tickers: [], holdings });
     const symbols = Array.from(new Set(holdings.map((holding) => holding.ticker.trim().toUpperCase()).filter(Boolean)));
     const eventResult = await getMarketEvents({ symbols });
@@ -65,11 +65,11 @@ function toLegacyEventType(event: MarketEvent): CalendarEvent["type"] {
   return event.type;
 }
 
-async function loadHoldings(requestUrl: string) {
+async function loadHoldings(request: Request) {
   try {
-    const response = await fetch(new URL("/api/holdings", requestUrl), { cache: "no-store" });
+    const response = await fetch(new URL("/api/holdings", request.url), { cache: "no-store", headers: { cookie: request.headers.get("cookie") ?? "" } });
     const data = await response.json();
-    return Array.isArray(data) ? (data as Holding[]) : [];
+    return Array.isArray(data?.data) ? (data.data as Holding[]) : Array.isArray(data) ? (data as Holding[]) : [];
   } catch {
     return [];
   }

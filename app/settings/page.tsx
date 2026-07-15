@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { DataSyncStatus, type DataSyncState } from "@/components/data-sync-status";
+import { LocalStorageMigrationCard } from "@/components/local-storage-migration-card";
 import { PageHeader } from "@/components/page-header";
 import type { PortfolioAccount } from "@/lib/types";
 
@@ -60,6 +62,7 @@ export default function SettingsPage() {
   const [accounts, setAccounts] = useState<PortfolioAccount[]>([]);
   const [health, setHealth] = useState<DataHealth | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [syncState, setSyncState] = useState<DataSyncState>("syncing");
   const [isSaving, setIsSaving] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
 
@@ -75,7 +78,12 @@ export default function SettingsPage() {
       if (local) setSettings({ ...defaultSettings, ...JSON.parse(local) });
       const response = await fetch("/api/settings", { cache: "no-store" });
       const payload = await response.json();
-      if (response.ok) setSettings((current) => ({ ...current, ...payload }));
+      if (response.ok) {
+        setSettings((current) => ({ ...current, ...(payload.data ?? payload) }));
+        setSyncState("synced");
+      } else {
+        setSyncState("cloud-unavailable");
+      }
     } catch {
       setMessage("设置读取失败，已使用默认设置。");
     }
@@ -105,8 +113,12 @@ export default function SettingsPage() {
       });
       const payload = await response.json();
       if (response.ok) {
-        setSettings(payload);
-        window.localStorage.setItem(storageKey, JSON.stringify(payload));
+        const nextSettings = payload.data ?? payload;
+        setSettings(nextSettings);
+        window.localStorage.setItem(storageKey, JSON.stringify(nextSettings));
+        setSyncState("synced");
+      } else {
+        setSyncState("failed");
       }
       setMessage("设置已保存。");
     } catch {
@@ -153,6 +165,9 @@ export default function SettingsPage() {
           </button>
         }
       />
+
+      <LocalStorageMigrationCard />
+      <DataSyncStatus state={syncState} detail={syncState === "cloud-unavailable" ? "已保留浏览器本地设置备份" : null} />
 
       {message ? <p className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{message}</p> : null}
 

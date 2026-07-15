@@ -63,7 +63,7 @@ export default function DashboardPage() {
         const holdingsData = await holdingsResponse.json();
         if (!holdingsResponse.ok) throw new Error(holdingsData.error ?? t("loadHoldingsError"));
 
-        const nextHoldings = Array.isArray(holdingsData) ? (holdingsData as DashboardHolding[]) : [];
+        const nextHoldings = readArrayPayload<DashboardHolding>(holdingsData);
         if (cancelled) return;
         setHoldings(nextHoldings);
 
@@ -282,6 +282,14 @@ function getDashboardSummary(holdings: DashboardHolding[]) {
     riskLevel: !largest ? "暂无数据" : largest.allocation >= 35 ? "偏高" : "正常",
     riskNote: !largest ? "添加持仓后显示集中度" : largest.allocation >= 35 ? "最大持仓占比较高，请复核仓位纪律" : "最大持仓占比在可观察范围内"
   };
+}
+
+function readArrayPayload<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: T[] }).data;
+  }
+  return [];
 }
 
 function LoadingState({ message }: { message: string }) {

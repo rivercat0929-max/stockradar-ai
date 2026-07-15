@@ -8,8 +8,9 @@ export const revalidate = 0;
 export async function GET(request: Request) {
   try {
     const holdingsUrl = new URL("/api/holdings", request.url);
-    const response = await fetch(holdingsUrl, { cache: "no-store" });
-    const holdings = await response.json();
+    const response = await fetch(holdingsUrl, { cache: "no-store", headers: { cookie: request.headers.get("cookie") ?? "" } });
+    const payload = await response.json();
+    const holdings = Array.isArray(payload?.data) ? payload.data : payload;
 
     if (!response.ok || !Array.isArray(holdings)) {
       return Response.json({ error: "无法读取当前持仓。" }, { status: 502 });

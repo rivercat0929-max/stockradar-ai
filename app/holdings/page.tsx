@@ -2,8 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
+import { DataSyncStatus, type DataSyncState } from "@/components/data-sync-status";
 import { DataSourceBadge } from "@/components/data-source-badge";
 import { HoldingForm, type HoldingFormValues } from "@/components/holding-form";
+import { LocalStorageMigrationCard } from "@/components/local-storage-migration-card";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
 import type { Holding, PortfolioAccount } from "@/lib/types";
@@ -47,6 +49,7 @@ export default function HoldingsPage() {
   const [aiScores, setAiScores] = useState<Record<string, AiScoreSummary>>({});
   const [aiScoreErrors, setAiScoreErrors] = useState<Record<string, string>>({});
   const [isLoadingAiScores, setIsLoadingAiScores] = useState(false);
+  const [syncState, setSyncState] = useState<DataSyncState>("syncing");
 
   useEffect(() => {
     loadPortfolioData();
@@ -147,10 +150,12 @@ export default function HoldingsPage() {
       if (!holdingsResponse.ok) throw new Error(holdingsData.error ?? t("loadHoldingsError"));
 
       setAccounts(accountsData);
-      setHoldings(Array.isArray(holdingsData) ? holdingsData : []);
+      setHoldings(readArrayPayload<Holding>(holdingsData));
+      setSyncState("synced");
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t("loadHoldingsError"));
       setHoldings([]);
+      setSyncState("cloud-unavailable");
     } finally {
       setHoldingsLoading(false);
     }
@@ -181,14 +186,18 @@ export default function HoldingsPage() {
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? t("saveHoldingError"));
+      const savedHolding = readObjectPayload<Holding>(data);
+      if (!savedHolding) throw new Error(t("saveHoldingError"));
 
       setHoldings((current) => {
-        if (!editing) return [data, ...current];
-        return current.map((holding) => (holding.id === data.id ? data : holding));
+        if (!editing) return [savedHolding, ...current];
+        return current.map((holding) => (holding.id === savedHolding.id ? savedHolding : holding));
       });
       closeForm();
+      setSyncState("synced");
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t("saveHoldingError"));
+      setSyncState("failed");
     } finally {
       setIsSaving(false);
     }
@@ -209,8 +218,10 @@ export default function HoldingsPage() {
       if (!response.ok) throw new Error(data.error ?? t("deleteHoldingError"));
       setHoldings((current) => current.filter((item) => item.id !== holding.id));
       if (editing?.id === holding.id) closeForm();
+      setSyncState("synced");
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : t("deleteHoldingError"));
+      setSyncState("failed");
     }
   }
 
@@ -243,6 +254,9 @@ export default function HoldingsPage() {
           </button>
         }
       />
+
+      <LocalStorageMigrationCard />
+      <DataSyncStatus state={syncState} detail={syncState === "cloud-unavailable" ? "已停止用空响应覆盖当前界面" : null} />
 
       <section className="rounded-lg border border-slate-800 bg-slate-950 p-5 text-white shadow-soft">
         <div className="mb-5 flex flex-wrap gap-2">
@@ -416,6 +430,19 @@ function AiScoreCell({ score, error, isLoading }: { score?: AiScoreSummary; erro
 function getAccountName(accounts: PortfolioAccount[], accountId?: string) {
   if (!accountId) return "-";
   return accounts.find((account) => account.id === accountId)?.name ?? "-";
+}
+
+function readArrayPayload<T>(payload: unknown): T[] {
+  if (Array.isArray(payload)) return payload as T[];
+  if (payload && typeof payload === "object" && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: T[] }).data;
+  }
+  return [];
+}
+
+function readObjectPayload<T>(payload: unknown): T | null {
+  if (payload && typeof payload === "object" && "data" in payload) return (payload as { data: T }).data;
+  return payload && typeof payload === "object" ? (payload as T) : null;
 }
 
 function getAiRatingLabel(rating: string) {

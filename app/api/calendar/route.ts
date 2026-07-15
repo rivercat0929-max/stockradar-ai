@@ -8,14 +8,15 @@ export const revalidate = 0;
 
 export async function GET(request: Request) {
   try {
+    const headers = { cookie: request.headers.get("cookie") ?? "" };
     const [holdingsResponse, watchlistResponse] = await Promise.all([
-      fetch(new URL("/api/holdings", request.url), { cache: "no-store" }),
-      fetch(new URL("/api/watchlist", request.url), { cache: "no-store" })
+      fetch(new URL("/api/holdings", request.url), { cache: "no-store", headers }),
+      fetch(new URL("/api/watchlist", request.url), { cache: "no-store", headers })
     ]);
     const holdingsData = await holdingsResponse.json().catch(() => []);
     const watchlistData = await watchlistResponse.json().catch(() => ({ items: [] }));
-    const holdings = Array.isArray(holdingsData) ? (holdingsData as Holding[]) : [];
-    const watchlistItems = Array.isArray(watchlistData.items) ? (watchlistData.items as WatchlistRecord[]) : [];
+    const holdings = Array.isArray(holdingsData?.data) ? (holdingsData.data as Holding[]) : Array.isArray(holdingsData) ? (holdingsData as Holding[]) : [];
+    const watchlistItems = Array.isArray(watchlistData?.data) ? (watchlistData.data as WatchlistRecord[]) : Array.isArray(watchlistData.items) ? (watchlistData.items as WatchlistRecord[]) : [];
     const watchlistHoldings = toHoldingLikeWatchlistItems(watchlistItems) as Holding[];
     const symbols = Array.from(new Set([...holdings, ...watchlistHoldings].map((item) => item.ticker.trim().toUpperCase()).filter(Boolean)));
     const from = new URL(request.url).searchParams.get("from") ?? undefined;

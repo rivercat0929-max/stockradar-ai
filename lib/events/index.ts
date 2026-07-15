@@ -1,5 +1,5 @@
 import { economicCalendar2026 } from "@/data/economic-calendar-2026";
-import { getStaleEventCache, getValidEventCache, setEventCache, withEventInFlight } from "@/lib/events/cache";
+import { getEventCacheTtls, getStaleEventCache, getValidEventCache, setEventCache, withEventInFlight } from "@/lib/events/cache";
 import type { EventType, GetMarketEventsOptions, MarketEvent, MarketEventsResult } from "@/lib/events/types";
 
 const fmpTimeoutMs = 8000;
@@ -69,6 +69,12 @@ async function getCompanyEvents({
   const cached = getValidEventCache(key, "company");
   if (cached) return cached;
 
+  const supabaseCached = await readSupabaseEventCache(key);
+  if (supabaseCached) {
+    setEventCache(key, supabaseCached);
+    return supabaseCached;
+  }
+
   try {
     const events = await withEventInFlight(key, async () => {
       const groups = await Promise.all([
@@ -78,8 +84,14 @@ async function getCompanyEvents({
       return groups.flat();
     });
     setEventCache(key, events);
+    void writeSupabaseEventCache(key, events, getEventCacheTtls("company").freshTtlMs);
     return events;
   } catch {
+    const supabaseStale = await readSupabaseEventCache(key, { allowStale: true });
+    if (supabaseStale) {
+      warnings.push("部分公司事件使用过期云端缓存");
+      return supabaseStale;
+    }
     const stale = getStaleEventCache(key, "company");
     if (stale) {
       warnings.push("部分公司事件使用过期缓存");
@@ -236,6 +248,31 @@ async function fetchWithTimeout(url: string) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+async function readSupabaseEventCache(cacheKey: string, options: { allowStale?: boolean } = {}) {
+  if (typeof window !== "undefined") return null;
+  try {
+    const { readEventCache } = await importServerCacheRepository();
+    return readEventCache(cacheKey, options);
+  } catch {
+    return null;
+  }
+}
+
+async function writeSupabaseEventCache(cacheKey: string, events: MarketEvent[], ttlMs: number) {
+  if (typeof window !== "undefined") return;
+  try {
+    const { writeEventCache } = await importServerCacheRepository();
+    await writeEventCache(cacheKey, events, ttlMs);
+  } catch {
+    // Supabase cache writes are best-effort.
+  }
+}
+
+async function importServerCacheRepository() {
+  const load = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@/lib/repositories/cache")>;
+  return load("@/lib/repositories/cache");
 }
 
 function addDays(date: Date, days: number) {

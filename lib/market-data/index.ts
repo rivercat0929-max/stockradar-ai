@@ -1,5 +1,6 @@
 ﻿import { getStaleCachedQuote, getValidCachedQuote, normalizeSymbol, setCachedQuote } from "@/lib/market-data/cache";
 import { fetchFmpProfile, fetchFmpQuote } from "@/lib/market-data/providers/fmp";
+import { getMarketCacheTtls } from "@/lib/market-data/cache";
 import { fetchYahooQuote } from "@/lib/market-data/providers/yahoo";
 import type { MarketQuote, Quote, StockLookup } from "@/lib/market-data/types";
 
@@ -16,6 +17,12 @@ export async function getMarketQuote(symbol: string): Promise<MarketQuote> {
 
   const cached = getValidCachedQuote(normalized);
   if (cached) return cached;
+
+  const supabaseCached = await readSupabaseMarketDataCache(normalized);
+  if (supabaseCached) {
+    setCachedQuote(normalized, supabaseCached);
+    return supabaseCached;
+  }
 
   const existing = inFlight.get(normalized);
   if (existing) return existing;
@@ -51,14 +58,19 @@ async function fetchFreshQuote(symbol: string): Promise<MarketQuote> {
   const fmpQuote = await fetchFmpQuote(symbol);
   if (isUsableQuote(fmpQuote)) {
     setCachedQuote(symbol, fmpQuote);
+    void writeSupabaseMarketDataCache(symbol, fmpQuote, getMarketCacheTtls().validTtlMs);
     return fmpQuote;
   }
 
   const yahooQuote = await fetchYahooQuote(symbol);
   if (isUsableQuote(yahooQuote)) {
     setCachedQuote(symbol, yahooQuote);
+    void writeSupabaseMarketDataCache(symbol, yahooQuote, getMarketCacheTtls().validTtlMs);
     return yahooQuote;
   }
+
+  const supabaseStale = await readSupabaseMarketDataCache(symbol, { allowStale: true });
+  if (supabaseStale) return supabaseStale;
 
   const stale = getStaleCachedQuote(symbol);
   if (stale) return stale;
@@ -95,6 +107,31 @@ function unavailableQuote(symbol: string, error: string): MarketQuote {
     isMarketOpen: null,
     error
   };
+}
+
+async function readSupabaseMarketDataCache(symbol: string, options: { allowStale?: boolean } = {}) {
+  if (typeof window !== "undefined") return null;
+  try {
+    const { readMarketDataCache } = await importServerCacheRepository();
+    return readMarketDataCache(symbol, options);
+  } catch {
+    return null;
+  }
+}
+
+async function writeSupabaseMarketDataCache(symbol: string, quote: MarketQuote, ttlMs: number) {
+  if (typeof window !== "undefined") return;
+  try {
+    const { writeMarketDataCache } = await importServerCacheRepository();
+    await writeMarketDataCache(symbol, quote, ttlMs);
+  } catch {
+    // Supabase cache writes are best-effort.
+  }
+}
+
+async function importServerCacheRepository() {
+  const load = new Function("specifier", "return import(specifier)") as (specifier: string) => Promise<typeof import("@/lib/repositories/cache")>;
+  return load("@/lib/repositories/cache");
 }
 
 function toLegacyQuote(quote: MarketQuote): Quote {

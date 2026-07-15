@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { Disclaimer } from "@/components/disclaimer";
+import { AuthStatus } from "@/components/auth-status";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useLanguage } from "@/components/language-provider";
 import type { TranslationKey } from "@/lib/i18n";
@@ -33,6 +34,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {t("appName")} <span className="text-slate-400">/ StockRadar AI</span>
             </Link>
             <div className="flex items-center gap-3">
+              <AuthStatus />
               <span className="rounded-md border border-slate-700 px-3 py-1 text-sm text-slate-300">MVP</span>
               <LanguageSwitcher />
             </div>
