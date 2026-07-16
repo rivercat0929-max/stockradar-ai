@@ -61,13 +61,13 @@ export default function DashboardPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const [holdingsPayload, watchlistPayload] = await Promise.all([
-          fetchJson("/api/holdings"),
-          fetchJson("/api/watchlist")
-        ]);
+        const holdingsPayload = await fetchJson("/api/holdings");
         if (cancelled) return;
 
         const nextHoldings = readArrayPayload<DashboardHolding>(holdingsPayload);
+        const watchlistPayload = await fetchJsonOrNull("/api/watchlist");
+        if (cancelled) return;
+
         const nextWatchlist = readArrayPayload<WatchlistRecord>(watchlistPayload);
         setHoldings(nextHoldings);
         setWatchlist(nextWatchlist);
@@ -76,8 +76,8 @@ export default function DashboardPage() {
         const holdingTickers = Array.from(new Set(nextHoldings.map((item) => item.ticker.trim().toUpperCase()).filter(Boolean)));
 
         const [scoresPayload, eventsPayload] = await Promise.all([
-          tickers.length ? fetchJson(`/api/ai-score/batch?tickers=${encodeURIComponent(tickers.join(","))}`) : Promise.resolve({ results: [] }),
-          holdingTickers.length ? fetchJson(`/api/events?${getSevenDayEventParams(holdingTickers)}`) : Promise.resolve({ data: [] })
+          tickers.length ? fetchJsonOrNull(`/api/ai-score/batch?tickers=${encodeURIComponent(tickers.join(","))}`) : Promise.resolve({ results: [] }),
+          holdingTickers.length ? fetchJsonOrNull(`/api/events?${getSevenDayEventParams(holdingTickers)}`) : Promise.resolve({ data: [] })
         ]);
         if (cancelled) return;
         setScores(Array.isArray(scoresPayload?.results) ? scoresPayload.results : []);
@@ -203,6 +203,14 @@ async function fetchJson(url: string) {
   const payload = await response.json().catch(() => null);
   if (!response.ok) throw new Error(payload?.error ?? "request failed");
   return payload;
+}
+
+async function fetchJsonOrNull(url: string) {
+  try {
+    return await fetchJson(url);
+  } catch {
+    return null;
+  }
 }
 
 function buildSummary(holdings: DashboardHolding[]) {
