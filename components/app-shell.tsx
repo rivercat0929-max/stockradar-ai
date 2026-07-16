@@ -5,21 +5,23 @@ import { Disclaimer } from "@/components/disclaimer";
 import { AccessStatus } from "@/components/access-status";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useLanguage } from "@/components/language-provider";
-import type { TranslationKey } from "@/lib/i18n";
 
-const navItems: { href: string; labelKey: TranslationKey }[] = [
-  { href: "/", labelKey: "dashboard" },
-  { href: "/holdings", labelKey: "portfolio" },
-  { href: "/watchlist", labelKey: "watchlist" },
-  { href: "/portfolio", labelKey: "portfolioAnalytics" },
-  { href: "/ai-score", labelKey: "aiScore" },
-  { href: "/screener", labelKey: "screener" },
-  { href: "/alerts", labelKey: "alerts" },
-  { href: "/radar", labelKey: "radar" },
-  { href: "/calendar", labelKey: "calendar" },
-  { href: "/daily-report", labelKey: "dailyReport" },
-  { href: "/backtest", labelKey: "backtest" },
-  { href: "/settings", labelKey: "settings" }
+const navItems = [
+  { href: "/", label: "首页" },
+  { href: "/holdings", label: "我的持仓" },
+  { href: "/ai-score", label: "股票分析" },
+  { href: "/watchlist", label: "买卖计划" },
+  { href: "/alerts", label: "重要提醒" }
+];
+
+const moreTools = [
+  { href: "/portfolio", label: "组合分析" },
+  { href: "/calendar", label: "Event Calendar" },
+  { href: "/daily-report", label: "Daily Report" },
+  { href: "/backtest", label: "Backtest" },
+  { href: "/screener", label: "AI选股器" },
+  { href: "/radar", label: "选股雷达" },
+  { href: "/settings", label: "设置与数据" }
 ];
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -39,16 +41,26 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <LanguageSwitcher />
             </div>
           </div>
-          <nav className="flex gap-2 overflow-x-auto">
+          <nav className="flex flex-wrap gap-2">
             {navItems.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
                 className="whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white"
               >
-                {t(item.labelKey)}
+                {item.label}
               </Link>
             ))}
+            <details className="relative">
+              <summary className="cursor-pointer whitespace-nowrap rounded-md px-3 py-2 text-sm font-medium text-slate-300 hover:bg-slate-900 hover:text-white">更多工具</summary>
+              <div className="absolute z-20 mt-2 grid min-w-48 gap-1 rounded-md border border-slate-800 bg-slate-950 p-2 shadow-soft">
+                {moreTools.map((item) => (
+                  <Link key={item.href} href={item.href} className="whitespace-nowrap rounded px-3 py-2 text-sm text-slate-300 hover:bg-slate-900 hover:text-white">
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </details>
           </nav>
         </div>
       </header>
