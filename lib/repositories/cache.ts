@@ -1,61 +1,52 @@
 import "server-only";
-import { supabaseAdminRequest } from "@/lib/supabase/admin";
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
 import type { MarketEvent } from "@/lib/events/types";
 import type { MarketQuote } from "@/lib/market-data/types";
 
-type MarketCacheRow = {
-  symbol: string;
-  data: MarketQuote;
-  original_source: string | null;
-  updated_at: string | null;
-  cached_at: string;
-  expires_at: string;
-};
-
-type EventCacheRow = {
-  cache_key: string;
-  data: MarketEvent[];
-  sources: string[];
-  cached_at: string;
-  expires_at: string;
-};
-
 export async function readMarketDataCache(symbol: string, options: { allowStale?: boolean } = {}) {
   try {
-    const rows = await supabaseAdminRequest<MarketCacheRow[]>(
-      `market_data_cache?symbol=eq.${encodeURIComponent(symbol)}&select=*`
-    );
-    const row = rows?.[0];
+    const row = await prisma.marketDataCache.findUnique({ where: { symbol } });
     if (!row) return null;
-    const expired = new Date(row.expires_at).getTime() <= Date.now();
+    const expired = row.expiresAt.getTime() <= Date.now();
     if (expired && !options.allowStale) return null;
+    const data = row.data as unknown as MarketQuote;
     return {
-      ...row.data,
+      ...data,
       source: expired ? "stale-cache" : "cache",
-      originalSource: (row.data.originalSource ?? row.original_source ?? null) as MarketQuote["originalSource"],
-      updatedAt: row.updated_at ?? row.data.updatedAt,
+      originalSource: normalizeOriginalSource(data.originalSource ?? row.originalSource),
+      updatedAt: row.updatedAt?.toISOString() ?? data.updatedAt,
       fetchedAt: new Date().toISOString(),
       isStale: expired,
-      error: expired ? row.data.error ?? "Using stale Supabase market data cache." : row.data.error
+      error: expired ? data.error ?? "Using stale Neon market data cache." : data.error
     } satisfies MarketQuote;
   } catch {
     return null;
   }
 }
 
+function normalizeOriginalSource(value: unknown): MarketQuote["originalSource"] {
+  return value === "fmp" || value === "yahoo" ? value : null;
+}
+
 export async function writeMarketDataCache(symbol: string, quote: MarketQuote, ttlMs: number) {
   try {
-    await supabaseAdminRequest("market_data_cache", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({
+    await prisma.marketDataCache.upsert({
+      where: { symbol },
+      update: {
+        data: toJsonValue(quote),
+        originalSource: quote.originalSource ?? quote.source,
+        updatedAt: quote.updatedAt ? new Date(quote.updatedAt) : null,
+        cachedAt: new Date(),
+        expiresAt: new Date(Date.now() + ttlMs)
+      },
+      create: {
         symbol,
-        data: quote,
-        original_source: quote.originalSource ?? quote.source,
-        updated_at: quote.updatedAt,
-        cached_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + ttlMs).toISOString()
-      })
+        data: toJsonValue(quote),
+        originalSource: quote.originalSource ?? quote.source,
+        updatedAt: quote.updatedAt ? new Date(quote.updatedAt) : null,
+        expiresAt: new Date(Date.now() + ttlMs)
+      }
     });
   } catch {
     // Cache persistence is best-effort and must not block market data.
@@ -64,14 +55,11 @@ export async function writeMarketDataCache(symbol: string, quote: MarketQuote, t
 
 export async function readEventCache(cacheKey: string, options: { allowStale?: boolean } = {}) {
   try {
-    const rows = await supabaseAdminRequest<EventCacheRow[]>(
-      `event_cache?cache_key=eq.${encodeURIComponent(cacheKey)}&select=*`
-    );
-    const row = rows?.[0];
+    const row = await prisma.eventCache.findUnique({ where: { cacheKey } });
     if (!row) return null;
-    const expired = new Date(row.expires_at).getTime() <= Date.now();
+    const expired = row.expiresAt.getTime() <= Date.now();
     if (expired && !options.allowStale) return null;
-    const events = row.data.map((event) => ({
+    const events = (row.data as unknown as MarketEvent[]).map((event) => ({
       ...event,
       source: expired ? "stale-cache" : "cache",
       sourceName: expired ? `过期缓存 · ${event.sourceName}` : `缓存 · ${event.sourceName}`,
@@ -86,18 +74,26 @@ export async function readEventCache(cacheKey: string, options: { allowStale?: b
 
 export async function writeEventCache(cacheKey: string, events: MarketEvent[], ttlMs: number) {
   try {
-    await supabaseAdminRequest("event_cache", {
-      method: "POST",
-      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({
-        cache_key: cacheKey,
-        data: events,
-        sources: Array.from(new Set(events.map((event) => event.source))),
-        cached_at: new Date().toISOString(),
-        expires_at: new Date(Date.now() + ttlMs).toISOString()
-      })
+    await prisma.eventCache.upsert({
+      where: { cacheKey },
+      update: {
+        data: toJsonValue(events),
+        sources: toJsonValue(Array.from(new Set(events.map((event) => event.source)))),
+        cachedAt: new Date(),
+        expiresAt: new Date(Date.now() + ttlMs)
+      },
+      create: {
+        cacheKey,
+        data: toJsonValue(events),
+        sources: toJsonValue(Array.from(new Set(events.map((event) => event.source)))),
+        expiresAt: new Date(Date.now() + ttlMs)
+      }
     });
   } catch {
     // Cache persistence is best-effort and must not block event loading.
   }
+}
+
+function toJsonValue(value: unknown): Prisma.InputJsonValue {
+  return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }

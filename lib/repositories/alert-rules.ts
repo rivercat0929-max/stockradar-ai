@@ -1,26 +1,55 @@
-import { eq, hasSupabaseAdmin, order, supabaseAdminRequest } from "@/lib/supabase/admin";
-import { normalizeSymbol, RepositoryError } from "@/lib/repositories/shared";
-import type { Json, SupabaseAlertRuleRow } from "@/lib/types/database";
+import type { Prisma } from "@prisma/client";
+import { prisma } from "@/lib/prisma";
+import { finiteNonNegativeNumber, normalizeSymbol, RepositoryError } from "@/lib/repositories/shared";
 
-export async function getAlertRules(userId: string) {
-  if (!hasSupabaseAdmin()) throw new RepositoryError("Supabase 未配置。");
-  return supabaseAdminRequest<SupabaseAlertRuleRow[]>(`alert_rules?${eq("user_id", userId)}&${order("created_at", "desc")}`);
+export async function getAlertRules() {
+  try {
+    return await prisma.alertRule.findMany({ orderBy: { createdAt: "desc" } });
+  } catch (cause) {
+    throw new RepositoryError("预警规则暂时不可用。", cause);
+  }
 }
 
-export async function createAlertRule(userId: string, input: Record<string, unknown>) {
+export async function createAlertRule(input: Record<string, unknown>) {
   const symbol = normalizeSymbol(input.symbol ?? input.ticker);
   if (!symbol) throw new RepositoryError("股票代码不能为空。");
-  const rows = await supabaseAdminRequest<SupabaseAlertRuleRow[]>("alert_rules", {
-    method: "POST",
-    body: JSON.stringify({
-      user_id: userId,
+  const threshold = input.threshold ?? input.targetValue;
+  const row = await prisma.alertRule.create({
+    data: {
       symbol,
-      rule_type: String(input.ruleType ?? input.alertType ?? "price"),
+      ruleType: String(input.ruleType ?? input.alertType ?? "price"),
       operator: typeof input.operator === "string" ? input.operator : null,
-      threshold: typeof input.threshold === "number" ? input.threshold : typeof input.targetValue === "number" ? input.targetValue : null,
-      configuration: input as Json,
-      is_enabled: true
-    })
+      threshold: threshold === null || threshold === undefined ? null : finiteNonNegativeNumber(threshold),
+      configuration: toJsonObject(input),
+      isEnabled: typeof input.isEnabled === "boolean" ? input.isEnabled : true
+    }
   });
-  return rows[0];
+  return row;
+}
+
+export async function updateAlertRule(id: string, input: Record<string, unknown>) {
+  const threshold = input.threshold ?? input.targetValue;
+  return prisma.alertRule.update({
+    where: { id },
+    data: {
+      ...(input.symbol || input.ticker ? { symbol: normalizeSymbol(input.symbol ?? input.ticker) } : {}),
+      ...(input.ruleType || input.alertType ? { ruleType: String(input.ruleType ?? input.alertType) } : {}),
+      ...(input.operator !== undefined ? { operator: typeof input.operator === "string" ? input.operator : null } : {}),
+      ...(threshold !== undefined ? { threshold: threshold === null ? null : finiteNonNegativeNumber(threshold) } : {}),
+      ...(input.configuration !== undefined ? { configuration: toJsonObject(isRecord(input.configuration) ? input.configuration : {}) } : {}),
+      ...(input.isEnabled !== undefined ? { isEnabled: Boolean(input.isEnabled) } : {})
+    }
+  });
+}
+
+export async function deleteAlertRule(id: string) {
+  await prisma.alertRule.delete({ where: { id } });
+}
+
+function toJsonObject(input: Record<string, unknown>): Prisma.InputJsonObject {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Prisma.InputJsonObject;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

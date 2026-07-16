@@ -9,21 +9,20 @@ const protectedPaths = [
   "/alerts",
   "/calendar",
   "/daily-report",
-  "/backtest",
-  "/settings"
+  "/backtest"
 ];
 
 export function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
-  if (pathname.startsWith("/_next") || pathname.startsWith("/api") || pathname === "/login" || pathname.startsWith("/auth")) {
+  if (pathname.startsWith("/_next") || pathname.startsWith("/api")) {
     return NextResponse.next();
   }
   const protectedRoute = protectedPaths.some((path) => pathname === path || (path !== "/" && pathname.startsWith(`${path}/`)));
   if (!protectedRoute) return NextResponse.next();
-  if (request.cookies.get("stockradar_access_token")?.value) return NextResponse.next();
-  const loginUrl = new URL("/login", request.url);
-  loginUrl.searchParams.set("next", pathname);
-  return NextResponse.redirect(loginUrl);
+  if (request.cookies.get("stockradar_access_granted")?.value) return NextResponse.next();
+  const settingsUrl = new URL("/settings", request.url);
+  settingsUrl.searchParams.set("next", pathname);
+  return NextResponse.redirect(settingsUrl);
 }
 
 export const config = {

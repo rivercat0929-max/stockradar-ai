@@ -1,10 +1,11 @@
 "use client";
 
-export type DataSyncState = "syncing" | "synced" | "migration-pending" | "cloud-unavailable" | "local-backup" | "failed";
+export type DataSyncState = "connecting" | "syncing" | "synced" | "migration-pending" | "cloud-unavailable" | "local-backup" | "failed";
 
 const labels: Record<DataSyncState, string> = {
+  connecting: "正在连接 Neon",
   syncing: "正在同步",
-  synced: "已同步",
+  synced: "已同步到云端",
   "migration-pending": "本地数据待迁移",
   "cloud-unavailable": "云端暂时不可用",
   "local-backup": "使用本地备份",
@@ -12,6 +13,7 @@ const labels: Record<DataSyncState, string> = {
 };
 
 const classes: Record<DataSyncState, string> = {
+  connecting: "border-blue-200 bg-blue-50 text-blue-700",
   syncing: "border-blue-200 bg-blue-50 text-blue-700",
   synced: "border-green-200 bg-green-50 text-green-700",
   "migration-pending": "border-amber-200 bg-amber-50 text-amber-800",

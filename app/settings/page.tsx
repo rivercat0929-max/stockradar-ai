@@ -63,14 +63,56 @@ export default function SettingsPage() {
   const [health, setHealth] = useState<DataHealth | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [syncState, setSyncState] = useState<DataSyncState>("syncing");
+  const [accessKey, setAccessKey] = useState("");
+  const [accessUnlocked, setAccessUnlocked] = useState(false);
+  const [accessMessage, setAccessMessage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
 
   useEffect(() => {
+    checkAccess();
     loadSettings();
     loadAccounts();
     runDiagnostics();
   }, []);
+
+  async function checkAccess() {
+    try {
+      const response = await fetch("/api/access", { cache: "no-store" });
+      const payload = await response.json();
+      setAccessUnlocked(Boolean(payload.unlocked));
+      if (!payload.configured) setAccessMessage("访问密码尚未配置，请先在 Vercel 设置 STOCKRADAR_ACCESS_KEY。");
+    } catch {
+      setAccessUnlocked(false);
+    }
+  }
+
+  async function unlock(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAccessMessage(null);
+    const response = await fetch("/api/access", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ accessKey })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.success) {
+      setAccessUnlocked(false);
+      setAccessMessage(payload?.error ?? "解锁失败。");
+      return;
+    }
+    setAccessKey("");
+    setAccessUnlocked(true);
+    setAccessMessage("已解锁个人数据。");
+    const next = new URLSearchParams(window.location.search).get("next");
+    if (next && next.startsWith("/")) window.location.href = next;
+  }
+
+  async function lock() {
+    await fetch("/api/access", { method: "DELETE" });
+    setAccessUnlocked(false);
+    setAccessMessage("已退出解锁状态。");
+  }
 
   async function loadSettings() {
     try {
@@ -165,6 +207,30 @@ export default function SettingsPage() {
           </button>
         }
       />
+
+      <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">单用户访问保护</h2>
+            <p className="mt-1 text-sm text-muted">输入访问密码后，本浏览器会通过安全 Cookie 解锁个人持仓、自选股和设置。</p>
+          </div>
+          <span className={`rounded-md px-3 py-1 text-sm font-semibold ${accessUnlocked ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-800"}`}>
+            {accessUnlocked ? "已解锁" : "未解锁"}
+          </span>
+        </div>
+        <form onSubmit={unlock} className="mt-4 flex flex-col gap-3 sm:flex-row">
+          <input
+            value={accessKey}
+            onChange={(event) => setAccessKey(event.target.value)}
+            type="password"
+            className="min-w-0 flex-1 rounded-md border border-line bg-panel px-3 py-2 outline-none focus:border-signal"
+            placeholder="输入访问密码"
+          />
+          <button className="rounded-md bg-ink px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">解锁</button>
+          {accessUnlocked ? <button type="button" onClick={lock} className="rounded-md border border-line px-4 py-2 text-sm font-semibold text-ink hover:bg-panel">退出解锁</button> : null}
+        </form>
+        {accessMessage ? <p className="mt-3 text-sm text-muted">{accessMessage}</p> : null}
+      </section>
 
       <LocalStorageMigrationCard />
       <DataSyncStatus state={syncState} detail={syncState === "cloud-unavailable" ? "已保留浏览器本地设置备份" : null} />

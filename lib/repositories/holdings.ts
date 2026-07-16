@@ -1,7 +1,6 @@
-import { eq, hasSupabaseAdmin, order, supabaseAdminRequest } from "@/lib/supabase/admin";
-import type { SupabaseHoldingRow } from "@/lib/types/database";
+import { prisma } from "@/lib/prisma";
 import type { Holding } from "@/lib/types";
-import { finiteNonNegativeNumber, normalizeSymbol, optionalText, RepositoryError, toNumber } from "@/lib/repositories/shared";
+import { finiteNonNegativeNumber, normalizeSymbol, optionalText, RepositoryError } from "@/lib/repositories/shared";
 
 export type HoldingInput = {
   ticker?: string;
@@ -12,68 +11,112 @@ export type HoldingInput = {
   averageCost?: number;
   currency?: string;
   accountName?: string | null;
+  accountId?: string | null;
   notes?: string | null;
 };
 
-export async function getHoldings(userId: string) {
-  if (!hasSupabaseAdmin()) throw new RepositoryError("Supabase 未配置。");
-  const rows = await supabaseAdminRequest<SupabaseHoldingRow[]>(`holdings?${eq("user_id", userId)}&${order("created_at", "desc")}`);
-  return rows.map(toHolding);
+export async function getHoldings() {
+  try {
+    const rows = await prisma.holding.findMany({ include: { account: true }, orderBy: { createdAt: "desc" } });
+    return rows.map(toHolding);
+  } catch (cause) {
+    throw new RepositoryError("云端数据库暂时不可用。", cause);
+  }
 }
 
-export async function createHolding(userId: string, input: HoldingInput) {
-  const rows = await supabaseAdminRequest<SupabaseHoldingRow[]>("holdings", { method: "POST", body: JSON.stringify(toHoldingRowInput(userId, input)) });
-  return toHolding(rows[0]);
+export async function createHolding(input: HoldingInput) {
+  try {
+    const data = await toHoldingCreateInput(input);
+    const row = await prisma.holding.create({ data, include: { account: true } });
+    return toHolding(row);
+  } catch (cause) {
+    if (cause instanceof RepositoryError) throw cause;
+    throw new RepositoryError("无法保存持仓数据。", cause);
+  }
 }
 
-export async function updateHolding(userId: string, id: string, input: HoldingInput) {
-  const rows = await supabaseAdminRequest<SupabaseHoldingRow[]>(`holdings?${eq("id", id)}&${eq("user_id", userId)}`, { method: "PATCH", body: JSON.stringify(toHoldingRowInput(userId, input)) });
-  if (!rows[0]) throw new RepositoryError("持仓不存在。");
-  return toHolding(rows[0]);
+export async function updateHolding(id: string, input: HoldingInput) {
+  try {
+    const symbol = normalizeSymbol(input.symbol ?? input.ticker);
+    const shares = finiteNonNegativeNumber(input.quantity ?? input.shares);
+    const averageCost = finiteNonNegativeNumber(input.averageCost);
+    const account = await getAccount(input);
+    const row = await prisma.holding.update({
+      where: { id },
+      data: {
+        ...(symbol ? { ticker: symbol } : {}),
+        ...(input.companyName !== undefined ? { companyName: optionalText(input.companyName) } : {}),
+        ...(shares !== null ? { shares } : {}),
+        ...(averageCost !== null ? { averageCost } : {}),
+        ...(input.notes !== undefined ? { notes: optionalText(input.notes) } : {}),
+        ...(account ? { accountId: account.id } : {})
+      },
+      include: { account: true }
+    });
+    return toHolding(row);
+  } catch (cause) {
+    if (cause instanceof RepositoryError) throw cause;
+    throw new RepositoryError("无法更新持仓数据。", cause);
+  }
 }
 
-export async function deleteHolding(userId: string, id: string) {
-  await supabaseAdminRequest<null>(`holdings?${eq("id", id)}&${eq("user_id", userId)}`, { method: "DELETE" });
+export async function deleteHolding(id: string) {
+  try {
+    await prisma.holding.delete({ where: { id } });
+  } catch (cause) {
+    throw new RepositoryError("无法删除持仓数据。", cause);
+  }
 }
 
-export async function replaceHoldings(userId: string, holdings: HoldingInput[]) {
-  const existing = await getHoldings(userId);
-  await Promise.all(existing.map((item) => deleteHolding(userId, item.id)));
-  const created = [];
-  for (const holding of holdings) created.push(await createHolding(userId, holding));
+export async function replaceHoldings(holdings: HoldingInput[]) {
+  const created: Holding[] = [];
+  for (const holding of holdings) created.push(await createHolding(holding));
   return created;
 }
 
-function toHoldingRowInput(userId: string, input: HoldingInput) {
-  const symbol = normalizeSymbol(input.symbol ?? input.ticker);
-  const quantity = finiteNonNegativeNumber(input.quantity ?? input.shares);
+async function toHoldingCreateInput(input: HoldingInput) {
+  const ticker = normalizeSymbol(input.symbol ?? input.ticker);
+  const shares = finiteNonNegativeNumber(input.quantity ?? input.shares);
   const averageCost = finiteNonNegativeNumber(input.averageCost);
-  if (!symbol) throw new RepositoryError("股票代码不能为空。");
-  if (quantity === null) throw new RepositoryError("股数必须为有效数字。");
+  if (!ticker) throw new RepositoryError("股票代码不能为空。");
+  if (shares === null) throw new RepositoryError("股数必须为有效数字。");
   if (averageCost === null) throw new RepositoryError("平均成本必须为有效数字。");
+  const account = await getAccount(input);
   return {
-    user_id: userId,
-    symbol,
-    company_name: optionalText(input.companyName),
-    quantity,
-    average_cost: averageCost,
-    currency: input.currency ?? "USD",
-    account_name: optionalText(input.accountName),
-    notes: optionalText(input.notes),
-    updated_at: new Date().toISOString()
+    ticker,
+    companyName: optionalText(input.companyName),
+    shares,
+    averageCost,
+    accountId: account.id,
+    notes: optionalText(input.notes)
   };
 }
 
-function toHolding(row: SupabaseHoldingRow): Holding {
+async function getAccount(input: HoldingInput) {
+  if (input.accountId) {
+    const account = await prisma.portfolioAccount.findUnique({ where: { id: input.accountId } });
+    if (account) return account;
+  }
+  const name = optionalText(input.accountName) ?? "默认账户";
+  const existing = await prisma.portfolioAccount.findFirst({ where: { name } });
+  if (existing) return existing;
+  return prisma.portfolioAccount.create({
+    data: { name, currency: input.currency ?? "USD" }
+  });
+}
+
+function toHolding(row: Awaited<ReturnType<typeof prisma.holding.findMany>>[number] & { account?: Holding["account"] }): Holding {
   return {
     id: row.id,
-    ticker: row.symbol,
-    companyName: row.company_name,
-    shares: toNumber(row.quantity),
-    averageCost: toNumber(row.average_cost),
+    accountId: row.accountId,
+    account: row.account ?? undefined,
+    ticker: row.ticker,
+    companyName: row.companyName,
+    shares: row.shares,
+    averageCost: row.averageCost,
+    targetAllocation: row.targetAllocation,
     notes: row.notes,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    account: row.account_name ? { id: row.account_name, name: row.account_name, currency: row.currency, createdAt: row.created_at, updatedAt: row.updated_at } : undefined
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
   };
 }

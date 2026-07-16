@@ -1,17 +1,17 @@
 import { createWatchlistItem, deleteWatchlistItem, getWatchlist, updateWatchlistItem } from "@/lib/repositories/watchlist";
 import { RepositoryError } from "@/lib/repositories/shared";
 import { enrichWatchlistItems } from "@/lib/watchlist";
-import { authErrorResponse, getCurrentUserFromRequest } from "@/lib/supabase/server";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
-    const items = await enrichWatchlistItems(await getWatchlist(auth.user.id));
+    const items = await enrichWatchlistItems(await getWatchlist());
     return Response.json({ success: true, data: items, items, error: null, sync: { status: "synced" } });
   } catch (error) {
     console.error("GET /api/watchlist failed", sanitizeError(error));
@@ -20,10 +20,10 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
-    const item = await createWatchlistItem(auth.user.id, await request.json());
+    const item = await createWatchlistItem(await request.json());
     const [enriched] = await enrichWatchlistItems([item]);
     return Response.json({ success: true, data: enriched, item: enriched, sync: { status: "synced" } }, { status: 201 });
   } catch (error) {
@@ -32,13 +32,13 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const body = await request.json();
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return Response.json({ success: false, error: "自选股 id 必填。" }, { status: 400 });
-    const item = await updateWatchlistItem(auth.user.id, id, body);
+    const item = await updateWatchlistItem(id, body);
     const [enriched] = await enrichWatchlistItems([item]);
     return Response.json({ success: true, data: enriched, item: enriched, sync: { status: "synced" } });
   } catch (error) {
@@ -47,13 +47,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const body = await request.json();
     const id = typeof body.id === "string" ? body.id : "";
     if (!id) return Response.json({ success: false, error: "自选股 id 必填。" }, { status: 400 });
-    await deleteWatchlistItem(auth.user.id, id);
+    await deleteWatchlistItem(id);
     return Response.json({ success: true, data: { id }, sync: { status: "synced" } });
   } catch (error) {
     return repositoryErrorResponse(error, "自选股删除失败。");

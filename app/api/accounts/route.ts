@@ -1,4 +1,5 @@
 import { Prisma, PrismaClient } from "@prisma/client";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,7 +15,9 @@ function getPrisma() {
   return prismaClient;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     if (!process.env.DATABASE_URL) {
       return Response.json([]);

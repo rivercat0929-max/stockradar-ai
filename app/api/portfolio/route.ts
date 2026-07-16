@@ -1,4 +1,5 @@
 import { analyzePortfolio } from "@/lib/portfolio";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 import type { Holding } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -6,6 +7,8 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const holdingsUrl = new URL("/api/holdings", request.url);
     const response = await fetch(holdingsUrl, { cache: "no-store", headers: { cookie: request.headers.get("cookie") ?? "" } });

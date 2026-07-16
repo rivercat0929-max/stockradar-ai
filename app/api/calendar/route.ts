@@ -1,4 +1,5 @@
 import { getMarketEvents } from "@/lib/events";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 import type { Holding } from "@/lib/types";
 import { toHoldingLikeWatchlistItems, type WatchlistRecord } from "@/lib/watchlist";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const headers = { cookie: request.headers.get("cookie") ?? "" };
     const [holdingsResponse, watchlistResponse] = await Promise.all([

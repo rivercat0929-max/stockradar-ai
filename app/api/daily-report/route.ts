@@ -1,4 +1,5 @@
 import { generateRadarAlertsV2 } from "@/lib/alerts-v2";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 import { getMarketEvents, type MarketEvent } from "@/lib/events";
 import { buildDailyReport, buildEmptyDailyReport, type CalendarEvent, type EventCalendarResult } from "@/lib/daily-report";
 import type { Holding } from "@/lib/types";
@@ -8,6 +9,8 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const holdings = await loadHoldings(request);
     const alerts = await generateRadarAlertsV2({ tickers: [], holdings });

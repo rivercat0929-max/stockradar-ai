@@ -1,4 +1,5 @@
 import { generateRadarAlertsV2 } from "@/lib/alerts-v2";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 import type { Holding } from "@/lib/types";
 import { toHoldingLikeWatchlistItems, type WatchlistRecord } from "@/lib/watchlist";
 
@@ -7,6 +8,8 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const headers = { cookie: request.headers.get("cookie") ?? "" };
     const { searchParams } = new URL(request.url);

@@ -86,6 +86,67 @@ model Alert {
   user      User     @relation(fields: [userId], references: [id])
 }
 
+model UserSettings {
+  id        String   @id @default(cuid())
+  settings  Json     @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model AlertRule {
+  id            String       @id @default(cuid())
+  symbol        String
+  ruleType      String
+  operator      String?
+  threshold     Float?
+  configuration Json         @default("{}")
+  isEnabled     Boolean      @default(true)
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  events        AlertEvent[]
+}
+
+model AlertEvent {
+  id                  String     @id @default(cuid())
+  alertRuleId         String?
+  alertRule           AlertRule? @relation(fields: [alertRuleId], references: [id], onDelete: SetNull)
+  symbol              String
+  eventType           String
+  message             String
+  marketPrice         Float?
+  marketDataSource    String?
+  marketDataUpdatedAt DateTime?
+  isStale             Boolean    @default(false)
+  triggeredAt         DateTime   @default(now())
+  acknowledgedAt      DateTime?
+  metadata            Json       @default("{}")
+}
+
+model DailyReport {
+  id            String   @id @default(cuid())
+  reportDate    DateTime @unique @db.Date
+  reportContent Json
+  summaryText   String?
+  createdAt     DateTime @default(now())
+}
+
+model MarketDataCache {
+  symbol         String   @id
+  data           Json
+  originalSource String?
+  updatedAt      DateTime?
+  cachedAt       DateTime @default(now())
+  expiresAt      DateTime
+}
+
+model EventCache {
+  cacheKey  String   @id
+  data      Json
+  sources   Json     @default("[]")
+  cachedAt  DateTime @default(now())
+  expiresAt DateTime
+}
+
 model BacktestResult {
   id              String   @id @default(cuid())
   ticker          String

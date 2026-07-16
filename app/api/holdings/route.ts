@@ -1,6 +1,6 @@
 import { createHolding, deleteHolding, getHoldings, updateHolding } from "@/lib/repositories/holdings";
 import { RepositoryError } from "@/lib/repositories/shared";
-import { authErrorResponse, getCurrentUserFromRequest } from "@/lib/supabase/server";
+import { accessErrorResponse, requirePersonalAccess } from "@/lib/auth/access-key";
 import { getQuote } from "@/lib/market-data";
 import type { Holding } from "@/lib/types";
 
@@ -9,10 +9,10 @@ export const runtime = "nodejs";
 export const revalidate = 0;
 
 export async function GET(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
-    return Response.json({ success: true, data: await enrichHoldingsWithMarketData(await getHoldings(auth.user.id)), sync: { status: "synced" } });
+    return Response.json({ success: true, data: await enrichHoldingsWithMarketData(await getHoldings()), sync: { status: "synced" } });
   } catch (error) {
     console.error("GET /api/holdings failed", sanitizeError(error));
     return Response.json({ success: false, data: [], error: "无法读取持仓数据", sync: { status: "cloud-unavailable" } }, { status: 503 });
@@ -20,11 +20,11 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const body = await request.json();
-    const holding = await createHolding(auth.user.id, normalizeInput(body));
+    const holding = await createHolding(normalizeInput(body));
     const [enriched] = await enrichHoldingsWithMarketData([holding]);
     return Response.json({ success: true, data: enriched, sync: { status: "synced" } }, { status: 201 });
   } catch (error) {
@@ -33,13 +33,13 @@ export async function POST(request: Request) {
 }
 
 export async function PUT(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const body = await request.json();
     const id = getId(body);
     if (!id) return Response.json({ success: false, error: "Holding id is required." }, { status: 400 });
-    const holding = await updateHolding(auth.user.id, id, normalizeInput(body));
+    const holding = await updateHolding(id, normalizeInput(body));
     const [enriched] = await enrichHoldingsWithMarketData([holding]);
     return Response.json({ success: true, data: enriched, sync: { status: "synced" } });
   } catch (error) {
@@ -48,13 +48,13 @@ export async function PUT(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const auth = await getCurrentUserFromRequest(request);
-  if (!auth.ok) return authErrorResponse(auth);
+  const access = requirePersonalAccess(request);
+  if (!access.ok) return accessErrorResponse(access);
   try {
     const body = await request.json();
     const id = getId(body);
     if (!id) return Response.json({ success: false, error: "Holding id is required." }, { status: 400 });
-    await deleteHolding(auth.user.id, id);
+    await deleteHolding(id);
     return Response.json({ success: true, data: { id }, sync: { status: "synced" } });
   } catch (error) {
     return repositoryErrorResponse(error, "无法删除持仓数据");

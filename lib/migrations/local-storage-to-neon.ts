@@ -1,13 +1,16 @@
 "use client";
 
 export type LocalStorageMigrationStatus = "not_started" | "completed" | "skipped" | "failed";
-export const migrationStatusKey = "stockradar_supabase_migration_v1";
+export const migrationStatusKey = "stockradar_neon_migration_v1";
 
 export function getLocalStorageMigrationSummary() {
-  if (typeof window === "undefined") return { holdingsCount: 0, watchlistCount: 0, settingsFound: false, status: "not_started" as LocalStorageMigrationStatus };
+  if (typeof window === "undefined") {
+    return { holdingsCount: 0, watchlistCount: 0, alertsCount: 0, settingsFound: false, status: "not_started" as LocalStorageMigrationStatus };
+  }
   return {
     holdingsCount: readArray(["stockradar_holdings", "stockradar-holdings", "holdings"]).length,
     watchlistCount: readArray(["stockradar_watchlist", "stockradar-watchlist", "watchlist"]).length,
+    alertsCount: readArray(["stockradar_alerts", "stockradar-alerts", "alerts"]).length,
     settingsFound: readObject(["stockradar_settings", "stockradar-settings", "settings"]) !== null,
     status: getMigrationStatus()
   };
@@ -23,7 +26,7 @@ export function markMigrationSkipped() {
   if (typeof window !== "undefined") window.localStorage.setItem(migrationStatusKey, "skipped");
 }
 
-export async function migrateLocalStorageToSupabase() {
+export async function migrateLocalStorageToNeon() {
   const holdings = readArray(["stockradar_holdings", "stockradar-holdings", "holdings"]);
   const watchlist = readArray(["stockradar_watchlist", "stockradar-watchlist", "watchlist"]);
   const settings = readObject(["stockradar_settings", "stockradar-settings", "settings"]);
