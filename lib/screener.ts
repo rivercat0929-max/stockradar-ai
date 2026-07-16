@@ -199,7 +199,7 @@ function toScreenerItem(score: Awaited<ReturnType<typeof getAiScore>>, volume: n
     grossMargin: profile.grossMargin,
     netMargin: profile.netMargin,
     roe: profile.roe,
-    aiScore: score.score,
+    aiScore: score.score ?? 0,
     rating: score.rating,
     ratingLabel: score.ratingLabel,
     matchReasons: [],

@@ -111,7 +111,7 @@ export async function enrichWatchlistItems(items: WatchlistRecord[]): Promise<En
       try {
         const [quote, score] = await Promise.all([getQuote(ticker), getAiScore(ticker)]);
         const target = quote.price === null ? { isNear: false, label: null } : getTargetDistance(quote.price, item.targetBuyPrice ?? null, item.targetSellPrice ?? null);
-        const alert = getWatchlistAlert({ price: quote.price ?? 0, changePercent: quote.changesPercentage ?? 0, score: score.score, target });
+        const alert = getWatchlistAlert({ price: quote.price ?? 0, changePercent: quote.changesPercentage ?? 0, score: score.score ?? 0, target });
 
         return {
           ...item,

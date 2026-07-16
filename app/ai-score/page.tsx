@@ -6,7 +6,7 @@ import { useLanguage } from "@/components/language-provider";
 import type { MarketQuote } from "@/lib/market-data";
 import { PageHeader } from "@/components/page-header";
 
-type DataSource = "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+type DataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据" | "估算数据" | "示例数据";
 
 type AiScoreResponse = {
   ticker: string;
@@ -15,17 +15,26 @@ type AiScoreResponse = {
   eps: number | null;
   marketCap: number | null;
   changesPercentage: number | null;
-  score: number;
+  score: number | null;
+  overallScore: number | null;
+  dataCoverage: number;
+  confidence: "high" | "medium" | "low" | "insufficient";
   rating: "Strong Buy" | "Buy" | "Hold" | "Watch" | "Avoid" | string;
   ratingLabel: string;
   dimensions: Array<{
     key: string;
     name: string;
-    score: number;
+    label?: string;
+    score: number | null;
     weight: number;
     weightedScore: number;
-    source: DataSource;
-    reason: string;
+    status?: string;
+    source: string;
+    updatedAt?: string | null;
+    metricsUsed?: string[];
+    missingMetrics?: string[];
+    explanation?: string;
+    reason?: string;
   }>;
   strengths: string[];
   risks: string[];
@@ -33,8 +42,8 @@ type AiScoreResponse = {
   aiSummary: string;
   dataSource: DataSource;
   dataSourceDetails: string[];
-  assetType?: "ETF";
-  scoreMode?: "full" | "market_only" | "estimated";
+  assetType?: "stock" | "etf" | "fund" | "reit" | "index" | "unknown";
+  scoreMode?: "real_data" | "insufficient" | "etf_limited";
   stale?: boolean;
   marketQuote: MarketQuote;
 };
@@ -80,8 +89,8 @@ export default function AiScorePage() {
     <div className="space-y-6">
       <PageHeader
         title="AI 股票评分 V2"
-        eyebrow="六维投资评分报告"
-        description="基于趋势、成长、估值、盈利、情绪和风险六个维度生成投资研究评分。"
+        eyebrow="真实数据分析"
+        description="基于真实行情、历史K线和 SEC 财务数据。数据不足时不生成综合评分。"
       />
 
       <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
@@ -105,7 +114,7 @@ export default function AiScorePage() {
         </form>
 
         <div className="mt-4 flex flex-wrap gap-2">
-          {["TSLA", "NVDA", "AMZN", "CEG", "TQQQ", "TSLL"].map((sample) => (
+          {["TSLA", "NVDA", "META", "AMZN", "AAPL", "MSFT", "SPY", "QQQ", "INVALIDTICKER"].map((sample) => (
             <button
               key={sample}
               type="button"
@@ -127,15 +136,16 @@ export default function AiScorePage() {
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-medium text-muted">{result.ticker}</p>
-                  <h2 className="mt-2 text-4xl font-bold tracking-normal text-ink">AI Score {result.score}/100</h2>
+                  <h2 className="mt-2 text-4xl font-bold tracking-normal text-ink">{result.score === null ? "暂不生成评分" : `AI Score ${result.score}/100`}</h2>
                 </div>
                 <SourceBadge source={result.dataSource} />
               </div>
               <div className="mt-4 flex flex-wrap gap-2">
                 <span className={`rounded-md px-3 py-1 text-sm font-semibold ${getRatingClass(result.rating)}`}>{result.rating} / {result.ratingLabel}</span>
-                {result.scoreMode === "market_only" ? <span className="rounded-md bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">市场走势评分</span> : null}
-                {result.scoreMode === "estimated" ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">含估算维度</span> : null}
-                {result.assetType === "ETF" ? <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">ETF/基金</span> : null}
+                <span className="rounded-md bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">覆盖率 {(result.dataCoverage * 100).toFixed(0)}%</span>
+                <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-700">可信度 {result.confidence}</span>
+                {result.scoreMode === "etf_limited" ? <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">ETF有限模型</span> : null}
+                {result.assetType === "etf" || result.assetType === "fund" ? <span className="rounded-md bg-slate-100 px-3 py-1 text-sm font-semibold text-slate-600">ETF/基金</span> : null}
                 {result.stale ? <span className="rounded-md bg-amber-100 px-3 py-1 text-sm font-semibold text-amber-800">使用缓存数据</span> : null}
               </div>
               <p className="mt-4 rounded-md border border-line bg-panel p-4 text-sm leading-6 text-muted">{result.aiSummary}</p>
@@ -153,10 +163,10 @@ export default function AiScorePage() {
           <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h2 className="text-lg font-semibold text-ink">六维评分</h2>
-                <p className="mt-1 text-sm text-muted">趋势20%、成长20%、估值15%、盈利15%、情绪15%、风险15%。</p>
+                <h2 className="text-lg font-semibold text-ink">五维真实评分</h2>
+                <p className="mt-1 text-sm text-muted">趋势20%、成长25%、估值20%、盈利质量20%、风险15%。情绪暂无可靠数据，不参与评分。</p>
               </div>
-              <span className="text-sm font-semibold text-muted">加权总分 {result.score}/100</span>
+              <span className="text-sm font-semibold text-muted">{result.score === null ? "数据不足，暂不生成综合评分" : `加权总分 ${result.score}/100`}</span>
             </div>
             <div className="grid gap-3 md:grid-cols-2">
               {result.dimensions.map((item) => (
@@ -190,7 +200,7 @@ export default function AiScorePage() {
             <div className="mt-4 space-y-4 text-sm leading-6 text-muted">
               <p>{result.aiSummary}</p>
               <p>评分越高代表当前数据下的综合观察价值越强，但不代表一定上涨。请结合仓位、行业集中度、财报事件和个人风险承受能力独立判断。</p>
-              {result.assetType === "ETF" ? <p>ETF/基金可能没有 PE 或 EPS，因此成长、估值、盈利维度包含规则估算，适合用作走势雷达，不适合作为基本面结论。</p> : null}
+              {result.assetType === "etf" || result.assetType === "fund" ? <p>ETF/基金不套用单公司营收、EPS 和盈利质量模型；基础数据不足时不生成完整股票评分。</p> : null}
             </div>
           </section>
         </>
@@ -214,22 +224,27 @@ function Metric({ label, value, tone = "neutral", extra }: { label: string; valu
 }
 
 function DimensionBar({ item }: { item: AiScoreResponse["dimensions"][number] }) {
+  const score = item.score;
+  const label = item.label ?? item.name;
   return (
     <div className="rounded-md border border-line bg-panel p-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="font-semibold text-ink">{item.name}</p>
-          <p className="mt-1 text-xs text-muted">权重 {item.weight}% · 加权 {item.weightedScore.toFixed(1)}</p>
+          <p className="font-semibold text-ink">{label}</p>
+          <p className="mt-1 text-xs text-muted">权重 {(item.weight * 100).toFixed(0)}% · 状态 {getStatusLabel(item.status)}</p>
         </div>
         <div className="flex items-center gap-2">
-          <SourceBadge source={item.source} />
-          <span className="text-sm font-semibold text-signal">{item.score}/100</span>
+          <StatusBadge status={item.status} />
+          <span className="text-sm font-semibold text-signal">{score === null ? "暂无可靠数据" : `${score}/100`}</span>
         </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded bg-white">
-        <div className={`h-full rounded ${getScoreBarClass(item.score)}`} style={{ width: `${Math.min(100, item.score)}%` }} />
+        <div className={`h-full rounded ${score === null ? "bg-slate-200" : getScoreBarClass(score)}`} style={{ width: `${score === null ? 0 : Math.min(100, score)}%` }} />
       </div>
-      <p className="mt-3 text-sm text-muted">{item.reason}</p>
+      <p className="mt-3 text-sm text-muted">{item.explanation ?? item.reason}</p>
+      {item.metricsUsed?.length ? <p className="mt-2 text-xs text-muted">使用指标：{item.metricsUsed.join("、")}</p> : null}
+      {item.missingMetrics?.length ? <p className="mt-1 text-xs text-muted">缺失指标：{item.missingMetrics.join("、")}</p> : null}
+      <p className="mt-1 text-xs text-muted">来源：{item.source}{item.updatedAt ? ` · 更新 ${formatDateTime(item.updatedAt)}` : ""}</p>
     </div>
   );
 }
@@ -253,10 +268,31 @@ function SourceBadge({ source }: { source: DataSource }) {
   return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getSourceClass(source)}`}>{source}</span>;
 }
 
+function StatusBadge({ status }: { status?: string }) {
+  const label = getStatusLabel(status);
+  return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getStatusClass(status)}`}>{label}</span>;
+}
+
+function getStatusLabel(status?: string) {
+  if (status === "real") return "真实数据";
+  if (status === "calculated") return "真实数据计算";
+  if (status === "cache") return "缓存数据";
+  if (status === "stale-cache") return "数据可能过期";
+  return "暂无可靠数据";
+}
+
+function getStatusClass(status?: string) {
+  if (status === "real" || status === "calculated") return "bg-green-100 text-green-700";
+  if (status === "cache") return "bg-blue-100 text-blue-700";
+  if (status === "stale-cache") return "bg-amber-100 text-amber-800";
+  return "bg-slate-100 text-slate-600";
+}
+
 function getSourceClass(source: DataSource) {
-  if (source === "真实数据") return "bg-green-100 text-green-700";
+  if (source === "真实数据" || source === "真实数据计算") return "bg-green-100 text-green-700";
   if (source === "缓存数据") return "bg-amber-100 text-amber-800";
-  if (source === "估算数据") return "bg-blue-100 text-blue-700";
+  if (source === "数据可能过期") return "bg-amber-100 text-amber-800";
+  if (source === "暂无可靠数据") return "bg-slate-100 text-slate-600";
   return "bg-purple-100 text-purple-700";
 }
 
@@ -301,6 +337,12 @@ function formatMarketCap(value: number | null) {
   if (value >= 1_000_000_000_000) return `$${formatOptionalNumber(value / 1_000_000_000_000)}T`;
   if (value >= 1_000_000_000) return `$${formatOptionalNumber(value / 1_000_000_000)}B`;
   return `$${formatOptionalNumber(value / 1_000_000)}M`;
+}
+
+function formatDateTime(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "未知时间";
+  return new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
 
