@@ -279,6 +279,8 @@ function buildDecisionAttentionItems(decisions: StockDecision[]) {
       items.push({ title: `${decision.symbol} 接近减仓条件`, detail: decision.riskReasons[0] ?? decision.summary });
     } else if (price !== null && decision.plan.riskControlPrice !== null && Math.abs((price - decision.plan.riskControlPrice) / decision.plan.riskControlPrice) <= 0.03) {
       items.push({ title: `${decision.symbol} 接近风险控制价`, detail: `当前 ${formatCurrency(price)}，风险控制价 ${formatCurrency(decision.plan.riskControlPrice)}。` });
+    } else if (price !== null && decision.averageCost === null && decision.plan.buyZoneHigh !== null && Math.abs((price - decision.plan.buyZoneHigh) / decision.plan.buyZoneHigh) <= 0.03) {
+      items.push({ title: `${decision.symbol} 自选股接近买入区`, detail: `当前 ${formatCurrency(price)}，买入区上限 ${formatCurrency(decision.plan.buyZoneHigh)}。` });
     } else if (decision.events.some((event) => event.type === "earnings") && (decision.positionWeight ?? 0) >= 10) {
       items.push({ title: `${decision.symbol} 财报临近且仓位较重`, detail: decision.events.find((event) => event.type === "earnings")?.title ?? "未来7天存在财报事件。" });
     }

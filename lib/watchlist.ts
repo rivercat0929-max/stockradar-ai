@@ -1,5 +1,5 @@
-﻿import { getAiScore, type AiScoreDataSource } from "@/lib/ai-score";
-import { getQuote, lookupStock, type MarketDataSource } from "@/lib/market-data";
+import { lookupStock } from "@/lib/market-data";
+import { getStockDecision, type ResearchJudgment, type StockDecision, type StockDecisionStatus } from "@/lib/stock-decision";
 
 export const defaultWatchlistUser = {
   email: "local@stockradar.ai",
@@ -7,9 +7,10 @@ export const defaultWatchlistUser = {
 };
 
 export const watchlistGroups = ["重点观察", "等待回调", "财报前观察", "长期关注", "已放弃"] as const;
+export const watchlistStatuses = ["high_priority", "wait_for_pullback", "earnings_watch", "long_term_watch", "buy_zone", "abandoned", "insufficient_data"] as const;
 
 export type WatchlistGroup = (typeof watchlistGroups)[number];
-export type WatchlistDataQuality = "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+export type WatchlistStatus = (typeof watchlistStatuses)[number];
 
 export type WatchlistInput = {
   ticker: string;
@@ -41,20 +42,28 @@ export type NormalizedWatchlistInput = Omit<WatchlistInput, "ticker" | "companyN
 };
 
 export type EnrichedWatchlistItem = WatchlistRecord & {
+  watchlistStatus: WatchlistStatus;
   currentPrice: number | null;
   changePercent: number | null;
-  aiScore: number | null;
-  rating: string | null;
-  ratingLabel: string | null;
+  researchJudgment: ResearchJudgment;
+  actionStatus: StockDecisionStatus;
+  dataCoverage: number;
+  confidence: StockDecision["confidence"];
   recentEarningsDate: string | null;
-  hasRecentAlert: boolean;
-  alertLabel: string | null;
-  targetDistanceLabel: string | null;
-  isNearTarget: boolean;
-  priceDataSource: WatchlistDataQuality;
-  scoreDataSource: WatchlistDataQuality;
-  eventDataSource: WatchlistDataQuality;
+  buyZoneLow: number | null;
+  buyZoneHigh: number | null;
+  firstWatchPrice: number | null;
+  riskReferencePrice: number | null;
+  maxPositionWeight: number | null;
+  distanceToBuyZonePercent: number | null;
+  distanceToBuyZoneLabel: string | null;
+  isNearBuyZone: boolean;
+  supportingReasons: string[];
+  riskReasons: string[];
+  dataUpdatedAt: string | null;
+  dataSourceLabel: string;
   rawMarketDataSource: string | null;
+  decision: StockDecision;
 };
 
 export function parseWatchlistInput(body: unknown): { data?: WatchlistInput; error?: string } {
@@ -105,54 +114,7 @@ export async function normalizeWatchlistInput(input: WatchlistInput): Promise<No
 }
 
 export async function enrichWatchlistItems(items: WatchlistRecord[]): Promise<EnrichedWatchlistItem[]> {
-  return Promise.all(
-    items.map(async (item): Promise<EnrichedWatchlistItem> => {
-      const ticker = item.ticker.trim().toUpperCase();
-      try {
-        const [quote, score] = await Promise.all([getQuote(ticker), getAiScore(ticker)]);
-        const target = quote.price === null ? { isNear: false, label: null } : getTargetDistance(quote.price, item.targetBuyPrice ?? null, item.targetSellPrice ?? null);
-        const alert = getWatchlistAlert({ price: quote.price ?? 0, changePercent: quote.changesPercentage ?? 0, score: score.score ?? 0, target });
-
-        return {
-          ...item,
-          ticker,
-          currentPrice: quote.price,
-          changePercent: quote.changesPercentage,
-          aiScore: score.score,
-          rating: score.rating,
-          ratingLabel: score.ratingLabel,
-          recentEarningsDate: getEstimatedEarningsDate(ticker),
-          hasRecentAlert: alert.hasAlert,
-          alertLabel: alert.label,
-          targetDistanceLabel: target.label,
-          isNearTarget: target.isNear,
-          priceDataSource: mapMarketSource(quote.marketDataSource, quote.stale),
-          scoreDataSource: mapAiSource(score.dataSource),
-          eventDataSource: "示例数据",
-          rawMarketDataSource: quote.marketDataSource
-        };
-      } catch {
-        return {
-          ...item,
-          ticker,
-          currentPrice: null,
-          changePercent: null,
-          aiScore: null,
-          rating: null,
-          ratingLabel: null,
-          recentEarningsDate: getEstimatedEarningsDate(ticker),
-          hasRecentAlert: false,
-          alertLabel: null,
-          targetDistanceLabel: null,
-          isNearTarget: false,
-          priceDataSource: "示例数据",
-          scoreDataSource: "示例数据",
-          eventDataSource: "示例数据",
-          rawMarketDataSource: null
-        };
-      }
-    })
-  );
+  return Promise.all(items.map(enrichWatchlistItem));
 }
 
 export function toHoldingLikeWatchlistItems(items: WatchlistRecord[]) {
@@ -175,6 +137,134 @@ export function toHoldingLikeWatchlistItems(items: WatchlistRecord[]) {
   }));
 }
 
+async function enrichWatchlistItem(item: WatchlistRecord): Promise<EnrichedWatchlistItem> {
+  const ticker = item.ticker.trim().toUpperCase();
+  try {
+    const decision = await getStockDecision(ticker);
+    const buyZoneLow = decision.plan.buyZoneLow ?? item.targetBuyPrice ?? null;
+    const buyZoneHigh = decision.plan.buyZoneHigh ?? item.targetBuyPrice ?? null;
+    const distance = getBuyZoneDistance(decision.currentPrice, buyZoneLow, buyZoneHigh);
+    const earningsDate = decision.events.find((event) => event.type === "earnings")?.startAt ?? null;
+
+    return {
+      ...item,
+      ticker,
+          watchlistStatus: deriveWatchlistStatus(item, decision, distance.inZone, Boolean(earningsDate)),
+      currentPrice: decision.currentPrice,
+      changePercent: decision.quote?.changePercent ?? null,
+      researchJudgment: decision.researchJudgment,
+      actionStatus: decision.actionStatus,
+      dataCoverage: decision.dataCoverage,
+      confidence: decision.confidence,
+      recentEarningsDate: earningsDate,
+      buyZoneLow,
+      buyZoneHigh,
+      firstWatchPrice: decision.plan.addPrice1,
+      riskReferencePrice: decision.plan.riskControlPrice ?? decision.systemReference.riskControlPrice,
+      maxPositionWeight: decision.plan.maxPositionWeight,
+      distanceToBuyZonePercent: distance.percent,
+      distanceToBuyZoneLabel: distance.label,
+      isNearBuyZone: distance.isNear,
+      supportingReasons: decision.supportingReasons,
+      riskReasons: decision.riskReasons,
+      dataUpdatedAt: decision.dataUpdatedAt,
+      dataSourceLabel: getDecisionSourceLabel(decision),
+      rawMarketDataSource: decision.quote?.source ?? null,
+      decision
+    };
+  } catch {
+    return unavailableItem(item, ticker);
+  }
+}
+
+function deriveWatchlistStatus(item: WatchlistRecord, decision: StockDecision, isInBuyZone: boolean, hasEarnings: boolean): WatchlistStatus {
+  if (item.group === "已放弃") return "abandoned";
+  if (decision.actionStatus === "insufficient_data" || decision.researchJudgment === "insufficient_data") return "insufficient_data";
+  if (decision.actionStatus === "buy_in_batches" || isInBuyZone) return "buy_zone";
+  if (hasEarnings || item.group === "财报前观察") return "earnings_watch";
+  if (decision.actionStatus === "wait_for_pullback" || item.group === "等待回调") return "wait_for_pullback";
+  if (item.group === "长期关注") return "long_term_watch";
+  return "high_priority";
+}
+
+function getBuyZoneDistance(price: number | null, low: number | null, high: number | null) {
+  if (price === null || (low === null && high === null)) return { percent: null, label: null, isNear: false, inZone: false };
+  if (low !== null && high !== null && price >= low && price <= high) return { percent: 0, label: "已进入买入区", isNear: true, inZone: true };
+  const target = price < (low ?? high ?? price) ? low ?? high : high ?? low;
+  if (!target || target <= 0) return { percent: null, label: null, isNear: false, inZone: false };
+  const percent = Math.abs((price - target) / target) * 100;
+  return { percent, label: `距离买入区 ${percent.toFixed(1)}%`, isNear: percent <= 3, inZone: false };
+}
+
+function getDecisionSourceLabel(decision: StockDecision) {
+  const source = decision.quote?.source;
+  if (source === "fmp") return "真实数据 · FMP";
+  if (source === "yahoo") return "真实数据 · Yahoo";
+  if (source === "cache") return "缓存数据";
+  if (source === "stale-cache") return "过期缓存";
+  return "暂无可靠数据";
+}
+
+function unavailableItem(item: WatchlistRecord, ticker: string): EnrichedWatchlistItem {
+  const decision = unavailableDecision(ticker);
+  return {
+    ...item,
+    ticker,
+    watchlistStatus: "insufficient_data",
+    currentPrice: null,
+    changePercent: null,
+    researchJudgment: "insufficient_data",
+    actionStatus: "insufficient_data",
+    dataCoverage: 0,
+    confidence: "insufficient",
+    recentEarningsDate: null,
+    buyZoneLow: item.targetBuyPrice ?? null,
+    buyZoneHigh: item.targetBuyPrice ?? null,
+    firstWatchPrice: null,
+    riskReferencePrice: null,
+    maxPositionWeight: null,
+    distanceToBuyZonePercent: null,
+    distanceToBuyZoneLabel: null,
+    isNearBuyZone: false,
+    supportingReasons: ["数据不足，暂不生成买入结论。"],
+    riskReasons: ["行情或分析数据暂时不可用。"],
+    dataUpdatedAt: null,
+    dataSourceLabel: "暂无可靠数据",
+    rawMarketDataSource: null,
+    decision
+  };
+}
+
+function unavailableDecision(symbol: string): StockDecision {
+  return {
+    symbol,
+    status: "insufficient_data",
+    actionStatus: "insufficient_data",
+    researchJudgment: "insufficient_data",
+    headline: "数据不足",
+    summary: "数据不足，暂不生成买入结论。",
+    currentPrice: null,
+    averageCost: null,
+    returnPercent: null,
+    positionWeight: null,
+    positionWeightCoverage: 0,
+    supportingReasons: ["数据不足，暂不生成买入结论。"],
+    riskReasons: ["行情或分析数据暂时不可用。"],
+    plan: { buyZoneLow: null, buyZoneHigh: null, addPrice1: null, addPrice2: null, riskControlPrice: null, targetPrice1: null, targetPrice2: null, maxPositionWeight: null },
+    thesis: null,
+    invalidationConditions: [],
+    dataCoverage: 0,
+    confidence: "insufficient",
+    dataUpdatedAt: null,
+    warnings: ["数据不足"],
+    planCompleteness: { completed: 0, total: 7 },
+    systemReference: { buyZoneLow: null, buyZoneHigh: null, supportPrice: null, resistancePrice: null, riskControlPrice: null, targetPrice1: null, targetPrice2: null, notes: [] },
+    events: [],
+    assetType: "unknown",
+    quote: null
+  };
+}
+
 function parseGroup(value: unknown): WatchlistGroup {
   return typeof value === "string" && watchlistGroups.includes(value as WatchlistGroup) ? (value as WatchlistGroup) : "重点观察";
 }
@@ -188,49 +278,3 @@ function getOptionalNumber(value: unknown) {
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? number : null;
 }
-
-function mapMarketSource(source: string, stale?: boolean): WatchlistDataQuality {
-  if (stale || source === "cache" || source === "stale-cache") return "缓存数据";
-  if (source === "fmp" || source === "fmp-stable" || source === "yahoo") return "真实数据";
-  if (source === "unavailable") return "示例数据";
-  return "示例数据";
-}
-
-function mapAiSource(source: AiScoreDataSource): WatchlistDataQuality {
-  if (source === "真实数据") return "真实数据";
-  if (source === "真实数据计算") return "真实数据";
-  if (source === "缓存数据") return "缓存数据";
-  if (source === "数据可能过期") return "缓存数据";
-  return "示例数据";
-}
-
-function getTargetDistance(price: number, buyTarget: number | null, sellTarget: number | null) {
-  const candidates = [
-    buyTarget ? { type: "买入价", target: buyTarget, distance: Math.abs(price - buyTarget) / buyTarget } : null,
-    sellTarget ? { type: "卖出价", target: sellTarget, distance: Math.abs(price - sellTarget) / sellTarget } : null
-  ].filter(Boolean) as Array<{ type: string; target: number; distance: number }>;
-
-  const nearest = candidates.sort((a, b) => a.distance - b.distance)[0];
-  if (!nearest) return { isNear: false, label: null };
-  const percent = nearest.distance * 100;
-  return {
-    isNear: percent <= 3,
-    label: `距离目标${nearest.type} ${percent.toFixed(1)}%`
-  };
-}
-
-function getWatchlistAlert({ price, changePercent, score, target }: { price: number; changePercent: number; score: number; target: { isNear: boolean; label: string | null } }) {
-  if (target.isNear) return { hasAlert: true, label: target.label ?? "接近目标价" };
-  if (Math.abs(changePercent) >= 5) return { hasAlert: true, label: `今日波动 ${changePercent.toFixed(1)}%` };
-  if (score >= 80) return { hasAlert: true, label: "AI Score 高于 80" };
-  if (price <= 0) return { hasAlert: false, label: null };
-  return { hasAlert: false, label: null };
-}
-
-function getEstimatedEarningsDate(ticker: string) {
-  const seed = ticker.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
-  const date = new Date();
-  date.setDate(date.getDate() + 7 + (seed % 24));
-  return date.toISOString().slice(0, 10);
-}
-
