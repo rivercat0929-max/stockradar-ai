@@ -16,7 +16,7 @@ export async function getSecFundamentals(symbol: string): Promise<NormalizedFund
       updatedAt: null,
       annual: [],
       quarterly: [],
-      warnings: ["该资产暂未获得SEC标准财务数据"]
+      warnings: [cik.error]
     };
   }
 

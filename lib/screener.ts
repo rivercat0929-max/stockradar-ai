@@ -51,8 +51,7 @@ export type ScreenerResponse = {
   dataSources: {
     real: number;
     cached: number;
-    estimated: number;
-    mock: number;
+    unavailable: number;
   };
 };
 
@@ -149,12 +148,11 @@ export async function runStockScreener(filters: ScreenerFilters): Promise<Screen
     poolNotice: "V1 当前基于精选股票池筛选，后续将扩展至全市场。",
     results,
     errors,
-    dataNotice: hasNonRealData(results) || errors.length ? "部分数据为缓存/估算结果。" : null,
+    dataNotice: hasNonRealData(results) || errors.length ? "部分数据为缓存、过期缓存或暂无可靠数据。" : null,
     dataSources: {
-      real: results.filter((item) => item.dataSource === "真实数据").length,
-      cached: results.filter((item) => item.dataSource === "缓存数据").length,
-      estimated: results.filter((item) => item.dataSource === "估算数据").length,
-      mock: results.filter((item) => item.dataSource === "示例数据").length
+      real: results.filter((item) => item.dataSource === "真实数据" || item.dataSource === "真实数据计算").length,
+      cached: results.filter((item) => item.dataSource === "缓存数据" || item.dataSource === "数据可能过期").length,
+      unavailable: results.filter((item) => item.dataSource === "暂无可靠数据").length
     }
   };
 }

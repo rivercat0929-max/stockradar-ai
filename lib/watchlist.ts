@@ -198,8 +198,9 @@ function mapMarketSource(source: string, stale?: boolean): WatchlistDataQuality 
 
 function mapAiSource(source: AiScoreDataSource): WatchlistDataQuality {
   if (source === "真实数据") return "真实数据";
+  if (source === "真实数据计算") return "真实数据";
   if (source === "缓存数据") return "缓存数据";
-  if (source === "估算数据") return "估算数据";
+  if (source === "数据可能过期") return "缓存数据";
   return "示例数据";
 }
 

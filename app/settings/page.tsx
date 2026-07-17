@@ -18,12 +18,14 @@ type Settings = {
 type ProviderHealth = {
   name: "FMP" | "Yahoo" | "本地缓存";
   status: "正常" | "异常" | "未配置" | "降级中";
-  label: "真实数据" | "缓存数据" | "估算数据" | "示例数据";
+  label: DataLabelValue;
   lastUpdatedAt: string | null;
   failureCount: number;
   isUsingFallback: boolean;
   message: string;
 };
+
+type DataLabelValue = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据";
 
 type DataHealth = {
   checkedAt: string;
@@ -259,7 +261,7 @@ export default function SettingsPage() {
               </button>
             </div>
           </form>
-          <p className="mt-4 text-xs text-muted">设置会保存到服务端内存，并同步保存到当前浏览器 localStorage。无数据库表时，浏览器本地设置仍可保留。</p>
+          <p className="mt-4 text-xs text-muted">设置会保存到 Neon PostgreSQL，并在当前浏览器保留 localStorage 备份；云端暂不可用时不会清空本地备份。</p>
         </section>
 
         <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
@@ -320,10 +322,11 @@ export default function SettingsPage() {
         <section className="rounded-lg border border-line bg-white p-5 shadow-soft">
           <h2 className="text-lg font-semibold text-ink">数据透明度</h2>
           <div className="mt-4 grid gap-3">
-            <Transparency label="真实数据" description="来自 FMP 等真实行情或财务接口。" />
-            <Transparency label="缓存数据" description="来自服务端内存缓存、过期缓存或 Yahoo fallback。" />
-            <Transparency label="估算数据" description="缺字段时由规则模型估算，例如部分 AI Score 维度。" />
-            <Transparency label="示例数据" description="真实数据与缓存都不可用时的功能预览数据。" />
+            <Transparency label="真实数据" description="real：来自 FMP、Yahoo、SEC 等真实外部数据源；Yahoo 是真实备用数据源，不是 mock 或普通缓存。" />
+            <Transparency label="真实数据计算" description="calculated：由真实行情、历史K线或 SEC 财务数据计算得到。" />
+            <Transparency label="缓存数据" description="cache：真实数据的有效缓存。" />
+            <Transparency label="数据可能过期" description="stale-cache：可能过期的真实数据，会降低可信度。" />
+            <Transparency label="暂无可靠数据" description="unavailable：暂无可靠数据。mock 不用于生产评分，estimated 不参与正式评分。" />
           </div>
         </section>
       </section>
@@ -365,12 +368,12 @@ function Row({ label, value }: { label: string; value: string }) {
   return <div className="flex justify-between gap-3"><span className="text-muted">{label}</span><span className="font-medium text-ink">{value}</span></div>;
 }
 
-function DataLabel({ label }: { label: ProviderHealth["label"] }) {
-  const className = label === "真实数据" ? "bg-green-100 text-green-700" : label === "缓存数据" ? "bg-amber-100 text-amber-800" : label === "估算数据" ? "bg-blue-100 text-blue-700" : "bg-purple-100 text-purple-700";
+function DataLabel({ label }: { label: DataLabelValue }) {
+  const className = label === "真实数据" || label === "真实数据计算" ? "bg-green-100 text-green-700" : label === "缓存数据" ? "bg-blue-100 text-blue-700" : label === "数据可能过期" ? "bg-amber-100 text-amber-800" : "bg-slate-100 text-slate-600";
   return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${className}`}>{label}</span>;
 }
 
-function Transparency({ label, description }: { label: ProviderHealth["label"]; description: string }) {
+function Transparency({ label, description }: { label: DataLabelValue; description: string }) {
   return <div className="rounded-md border border-line bg-panel p-3"><DataLabel label={label} /><p className="mt-2 text-sm text-muted">{description}</p></div>;
 }
 

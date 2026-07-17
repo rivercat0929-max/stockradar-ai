@@ -9,7 +9,7 @@ import { calculateTechnicalIndicators } from "@/lib/technical/indicators";
 import { calculateTechnicalRisk } from "@/lib/technical/risk";
 import { calculateValuation } from "@/lib/valuation/calculate";
 
-export type AiScoreDataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据" | "估算数据" | "示例数据";
+export type AiScoreDataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据";
 export type AiScoreDimensionKey = "trend" | "growth" | "valuation" | "quality" | "risk";
 export type AssetType = "stock" | "etf" | "fund" | "reit" | "index" | "unknown";
 export type Confidence = "high" | "medium" | "low" | "insufficient";
@@ -84,7 +84,7 @@ const weights: Record<AiScoreDimensionKey, number> = { trend: 0.2, growth: 0.25,
 
 export async function getAiScore(ticker: string): Promise<AiScoreResult> {
   const symbol = ticker.trim().toUpperCase();
-  const cacheKey = `ai-score:real-data:v1:${symbol}`;
+  const cacheKey = `ai-score:real-data:v2:${symbol}`;
   const cached = getCache<AiScoreResult>(cacheKey);
   if (cached) return cached;
   const stale = getStaleCache<AiScoreResult>(cacheKey);
@@ -105,7 +105,7 @@ export async function getAiScore(ticker: string): Promise<AiScoreResult> {
 }
 
 export function getCachedAiScore(ticker: string): AiScoreResult | null {
-  return getCache<AiScoreResult>(`ai-score:real-data:v1:${ticker.trim().toUpperCase()}`) ?? null;
+  return getCache<AiScoreResult>(`ai-score:real-data:v2:${ticker.trim().toUpperCase()}`) ?? null;
 }
 
 export function toAiScoreSummary(result: AiScoreResult): AiScoreSummary {

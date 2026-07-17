@@ -6,7 +6,7 @@ import { useLanguage } from "@/components/language-provider";
 import type { MarketQuote } from "@/lib/market-data";
 import { PageHeader } from "@/components/page-header";
 
-type DataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据" | "估算数据" | "示例数据";
+type DataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据";
 
 type AiScoreResponse = {
   ticker: string;
@@ -292,8 +292,7 @@ function getSourceClass(source: DataSource) {
   if (source === "真实数据" || source === "真实数据计算") return "bg-green-100 text-green-700";
   if (source === "缓存数据") return "bg-amber-100 text-amber-800";
   if (source === "数据可能过期") return "bg-amber-100 text-amber-800";
-  if (source === "暂无可靠数据") return "bg-slate-100 text-slate-600";
-  return "bg-purple-100 text-purple-700";
+  return "bg-slate-100 text-slate-600";
 }
 
 function getScoreBarClass(score: number) {
