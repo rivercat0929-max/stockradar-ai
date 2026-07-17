@@ -8,6 +8,8 @@ import { HoldingForm, type HoldingFormValues } from "@/components/holding-form";
 import { LocalStorageMigrationCard } from "@/components/local-storage-migration-card";
 import { useLanguage } from "@/components/language-provider";
 import { PageHeader } from "@/components/page-header";
+import { DecisionStatusBadge } from "@/components/stock-decision-card";
+import type { StockDecision } from "@/lib/stock-decision";
 import type { Holding, PortfolioAccount } from "@/lib/types";
 
 type SavePayload = {
@@ -47,6 +49,7 @@ export default function HoldingsPage() {
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiScores, setAiScores] = useState<Record<string, AiScoreSummary>>({});
+  const [decisions, setDecisions] = useState<Record<string, StockDecision>>({});
   const [aiScoreErrors, setAiScoreErrors] = useState<Record<string, string>>({});
   const [isLoadingAiScores, setIsLoadingAiScores] = useState(false);
   const [syncState, setSyncState] = useState<DataSyncState>("syncing");
@@ -117,6 +120,36 @@ export default function HoldingsPage() {
     };
   }, [holdings, t]);
 
+  useEffect(() => {
+    const tickers = Array.from(new Set(holdings.map((holding) => holding.ticker.trim().toUpperCase()).filter(Boolean)));
+    if (!tickers.length) {
+      setDecisions({});
+      return;
+    }
+
+    let cancelled = false;
+    async function loadDecisions() {
+      try {
+        const response = await fetch(`/api/stock-decision/batch?symbols=${encodeURIComponent(tickers.join(","))}`, { cache: "no-store" });
+        const payload = await response.json().catch(() => null);
+        if (cancelled || !response.ok) return;
+        const next: Record<string, StockDecision> = {};
+        if (Array.isArray(payload?.data)) {
+          payload.data.forEach((decision: StockDecision) => {
+            next[decision.symbol.toUpperCase()] = decision;
+          });
+        }
+        setDecisions(next);
+      } catch {
+        if (!cancelled) setDecisions({});
+      }
+    }
+    loadDecisions();
+    return () => {
+      cancelled = true;
+    };
+  }, [holdings]);
+
   const filteredHoldings = useMemo(() => {
     if (selectedAccountId === allAccountsId) return holdings;
     return holdings.filter((holding) => holding.accountId === selectedAccountId);
@@ -132,7 +165,7 @@ export default function HoldingsPage() {
   );
   const totalUnrealizedPL = isFiniteNumber(totalMarketValue) && isFiniteNumber(totalCost) ? totalMarketValue - totalCost : null;
   const totalReturnPercent = isFiniteNumber(totalUnrealizedPL) && isFiniteNumber(totalCost) && totalCost > 0 ? (totalUnrealizedPL / totalCost) * 100 : null;
-  const isUsingFallbackPrices = !holdingsLoading && filteredHoldings.some((holding) => holding.marketDataSource === "yahoo" || holding.marketDataSource === "mock");
+  const isUsingFallbackPrices = !holdingsLoading && filteredHoldings.some((holding) => holding.marketDataSource === "yahoo" || holding.marketDataSource === "stale-cache");
 
   async function loadPortfolioData() {
     setHoldingsLoading(true);
@@ -310,6 +343,7 @@ export default function HoldingsPage() {
                   t("returnPercent"),
                   t("allocation"),
                   t("aiScore"),
+                  "决策",
                   t("actions")
                 ].map((column) => (
                   <th key={column} className="border-b border-slate-800 bg-slate-900 px-3 py-3 font-semibold text-slate-300 first:rounded-l-md last:rounded-r-md">
@@ -337,6 +371,7 @@ export default function HoldingsPage() {
                 const ticker = holding.ticker.trim().toUpperCase();
                 const aiScore = aiScores[ticker];
                 const aiScoreError = aiScoreErrors[ticker];
+                const decision = decisions[ticker];
 
                 return (
                   <tr key={holding.id} className="hover:bg-slate-900/70">
@@ -356,6 +391,13 @@ export default function HoldingsPage() {
                     <td className="border-b border-slate-800 px-3 py-3">{formatNullablePercent(allocation)}</td>
                     <td className="border-b border-slate-800 px-3 py-3">
                       <AiScoreCell score={aiScore} error={aiScoreError} isLoading={isLoadingAiScores} />
+                    </td>
+                    <td className="border-b border-slate-800 px-3 py-3">
+                      {decision ? (
+                        <button type="button" onClick={() => { window.location.href = `/ai-score?symbol=${encodeURIComponent(ticker)}`; }}>
+                          <DecisionStatusBadge status={decision.status} />
+                        </button>
+                      ) : <span className="text-slate-400">--</span>}
                     </td>
                     <td className="border-b border-slate-800 px-3 py-3">
                       <div className="flex gap-3">
@@ -446,7 +488,7 @@ function readObjectPayload<T>(payload: unknown): T | null {
 }
 
 function getAiRatingLabel(rating: string) {
-  if (rating === "Strong Buy") return "Strong Buy / 强烈买入观察";
+  if (rating === "Strong Buy") return "高分观察";
   if (rating === "Buy") return "Buy / 买入观察";
   if (rating === "Hold") return "Hold / 持有观察";
   if (rating === "Watch") return "Watch / 谨慎观察";

@@ -1,10 +1,12 @@
 ﻿"use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { DataSourceBadge } from "@/components/data-source-badge";
 import { useLanguage } from "@/components/language-provider";
 import type { MarketQuote } from "@/lib/market-data";
 import { PageHeader } from "@/components/page-header";
+import { StockDecisionCard } from "@/components/stock-decision-card";
+import type { StockDecision } from "@/lib/stock-decision";
 
 type DataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据";
 
@@ -48,19 +50,36 @@ type AiScoreResponse = {
   marketQuote: MarketQuote;
 };
 
+function getInitialTicker() {
+  if (typeof window === "undefined") return "TSLA";
+  return new URLSearchParams(window.location.search).get("symbol")?.trim().toUpperCase() || "TSLA";
+}
+
 export default function AiScorePage() {
   const { t } = useLanguage();
-  const [ticker, setTicker] = useState("TSLA");
+  const [ticker, setTicker] = useState(() => getInitialTicker());
   const [result, setResult] = useState<AiScoreResponse | null>(null);
+  const [decision, setDecision] = useState<StockDecision | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const initial = getInitialTicker();
+    if (initial) void analyzeSymbol(initial);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function analyze(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const normalizedTicker = ticker.trim().toUpperCase();
+    await analyzeSymbol(normalizedTicker);
+  }
+
+  async function analyzeSymbol(normalizedTicker: string) {
     if (!normalizedTicker) {
       setError(t("tickerRequired"));
       setResult(null);
+      setDecision(null);
       return;
     }
 
@@ -77,8 +96,10 @@ export default function AiScorePage() {
       }
 
       setResult(data);
+      setDecision(await fetchDecision(normalizedTicker));
     } catch {
       setResult(null);
+      setDecision(null);
       setError("评分暂不可用，请稍后重试");
     } finally {
       setIsLoading(false);
@@ -131,6 +152,8 @@ export default function AiScorePage() {
 
       {result ? (
         <>
+          {decision ? <StockDecisionCard decision={decision} /> : null}
+
           <section className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
             <div className="rounded-lg border border-line bg-white p-5 shadow-soft">
               <div className="flex flex-wrap items-start justify-between gap-3">
@@ -266,6 +289,17 @@ function InsightList({ title, items, tone }: { title: string; items: string[]; t
 
 function SourceBadge({ source }: { source: DataSource }) {
   return <span className={`rounded-md px-2 py-1 text-xs font-semibold ${getSourceClass(source)}`}>{source}</span>;
+}
+
+async function fetchDecision(symbol: string) {
+  try {
+    const response = await fetch(`/api/stock-decision?symbol=${encodeURIComponent(symbol)}`, { cache: "no-store" });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.data) return null;
+    return payload.data as StockDecision;
+  } catch {
+    return null;
+  }
 }
 
 function StatusBadge({ status }: { status?: string }) {

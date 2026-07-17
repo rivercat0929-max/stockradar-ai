@@ -4,8 +4,10 @@ import { useEffect, useMemo, useState } from "react";
 import { DataSourceBadge } from "@/components/data-source-badge";
 import { MetricCard } from "@/components/metric-card";
 import { PageHeader } from "@/components/page-header";
+import { StockDecisionCard as ExplainableDecisionCard } from "@/components/stock-decision-card";
 import type { MarketEvent } from "@/lib/events/types";
 import type { MarketQuote } from "@/lib/market-data";
+import type { StockDecision } from "@/lib/stock-decision";
 import type { Holding } from "@/lib/types";
 import type { WatchlistRecord } from "@/lib/watchlist";
 
@@ -50,6 +52,7 @@ export default function DashboardPage() {
   const [holdings, setHoldings] = useState<DashboardHolding[]>([]);
   const [watchlist, setWatchlist] = useState<WatchlistRecord[]>([]);
   const [scores, setScores] = useState<AiScoreSummary[]>([]);
+  const [stockDecisions, setStockDecisions] = useState<StockDecision[]>([]);
   const [events, setEvents] = useState<MarketEvent[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -82,6 +85,8 @@ export default function DashboardPage() {
         if (cancelled) return;
         setScores(Array.isArray(scoresPayload?.results) ? scoresPayload.results : []);
         setEvents(readArrayPayload<MarketEvent>(eventsPayload));
+        const decisionPayload = tickers.length ? await fetchJsonOrNull(`/api/stock-decision/batch?symbols=${encodeURIComponent(tickers.join(","))}`) : { data: [] };
+        if (!cancelled) setStockDecisions(readArrayPayload<StockDecision>(decisionPayload));
       } catch {
         if (!cancelled) {
           setError("暂无可靠结论。请确认已解锁并稍后刷新。");
@@ -98,12 +103,12 @@ export default function DashboardPage() {
   }, []);
 
   const summary = useMemo(() => buildSummary(holdings), [holdings]);
-  const decisions = useMemo(() => buildDecisionCards(holdings, watchlist, scores, events), [holdings, watchlist, scores, events]);
-  const attentionItems = useMemo(() => buildAttentionItems(summary, decisions, events), [summary, decisions, events]);
+  const decisions = stockDecisions;
+  const attentionItems = useMemo(() => buildDecisionAttentionItems(decisions), [decisions]);
   const largestHoldings = useMemo(() => [...holdings].sort((a, b) => (b.marketValue ?? 0) - (a.marketValue ?? 0)).slice(0, 3), [holdings]);
-  const highRiskHoldings = useMemo(() => decisions.filter((item) => item.status === "风险较高").slice(0, 3), [decisions]);
-  const closestBuy = useMemo(() => findClosestBuy(watchlist, scores), [watchlist, scores]);
-  const closestExit = useMemo(() => findClosestExit(decisions), [decisions]);
+  const highRiskHoldings = useMemo(() => decisions.filter((item) => item.status === "high_risk").slice(0, 3), [decisions]);
+  const closestBuy = useMemo(() => findClosestDecisionBuy(decisions), [decisions]);
+  const closestExit = useMemo(() => findClosestDecisionExit(decisions), [decisions]);
   const lastUpdatedAt = useMemo(() => findLastUpdated(holdings, scores, events), [holdings, scores, events]);
 
   return (
@@ -133,7 +138,7 @@ export default function DashboardPage() {
               </article>
             ))}
           </div>
-        ) : <EmptyState />}
+        ) : <EmptyState text="今天没有需要立即处理的持仓事项。" />}
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
@@ -157,7 +162,7 @@ export default function DashboardPage() {
           {isLoading ? <LoadingState /> : highRiskHoldings.length ? (
             <div className="grid gap-3">
               {highRiskHoldings.map((item) => (
-                <DecisionSummary key={item.ticker} item={item} />
+                <DecisionSummary key={item.symbol} item={item} />
               ))}
             </div>
           ) : <EmptyState />}
@@ -190,7 +195,7 @@ export default function DashboardPage() {
       <Panel title="每只股票决策卡片">
         {isLoading ? <LoadingState /> : decisions.length ? (
           <div className="grid gap-4 xl:grid-cols-2">
-            {decisions.map((item) => <StockDecisionCard key={item.ticker} item={item} />)}
+            {decisions.map((item) => <ExplainableDecisionCard key={item.symbol} decision={item} compact />)}
           </div>
         ) : <EmptyState />}
       </Panel>
@@ -257,6 +262,64 @@ function buildDecisionCards(holdings: DashboardHolding[], watchlist: WatchlistRe
       confidence: getConfidence(holding.quote, score)
     };
   });
+}
+
+function buildDecisionAttentionItems(decisions: StockDecision[]) {
+  const items: { title: string; detail: string }[] = [];
+  decisions.forEach((decision) => {
+    if (items.length >= 3) return;
+    const price = decision.currentPrice;
+    if (decision.status === "buy_in_batches") {
+      items.push({ title: `${decision.symbol} 已进入计划买入区`, detail: decision.supportingReasons[0] ?? decision.summary });
+    } else if (decision.status === "high_risk") {
+      items.push({ title: `${decision.symbol} 触发风险检查`, detail: decision.riskReasons[0] ?? decision.summary });
+    } else if (decision.status === "consider_reduce") {
+      items.push({ title: `${decision.symbol} 接近减仓条件`, detail: decision.riskReasons[0] ?? decision.summary });
+    } else if (price !== null && decision.plan.riskControlPrice !== null && Math.abs((price - decision.plan.riskControlPrice) / decision.plan.riskControlPrice) <= 0.03) {
+      items.push({ title: `${decision.symbol} 接近风险控制价`, detail: `当前 ${formatCurrency(price)}，风险控制价 ${formatCurrency(decision.plan.riskControlPrice)}。` });
+    } else if (decision.events.some((event) => event.type === "earnings") && (decision.positionWeight ?? 0) >= 10) {
+      items.push({ title: `${decision.symbol} 财报临近且仓位较重`, detail: decision.events.find((event) => event.type === "earnings")?.title ?? "未来7天存在财报事件。" });
+    }
+  });
+  return items;
+}
+
+function findClosestDecisionBuy(decisions: StockDecision[]) {
+  return decisions
+    .map((item) => {
+      if (item.currentPrice === null || item.plan.buyZoneHigh === null) return null;
+      const target = item.currentPrice < (item.plan.buyZoneLow ?? item.plan.buyZoneHigh) ? item.plan.buyZoneLow ?? item.plan.buyZoneHigh : item.plan.buyZoneHigh;
+      return { ticker: item.symbol, label: "接近买入区", price: item.currentPrice, target, distance: Math.abs((item.currentPrice - target) / target) * 100, detail: item.supportingReasons[0] ?? item.summary, quote: item.quote };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a!.distance - b!.distance)[0] ?? null;
+}
+
+function findClosestDecisionExit(decisions: StockDecision[]) {
+  return decisions
+    .flatMap((item) => {
+      const price = item.currentPrice;
+      const signals = [];
+      if (isFiniteNumber(price) && item.plan.riskControlPrice) {
+        signals.push({ ticker: item.symbol, label: "接近风险控制价", price, target: item.plan.riskControlPrice, distance: Math.abs((price - item.plan.riskControlPrice) / item.plan.riskControlPrice) * 100, detail: item.riskReasons[0] ?? item.summary, quote: item.quote });
+      }
+      if (isFiniteNumber(price) && item.plan.targetPrice1) {
+        signals.push({ ticker: item.symbol, label: "接近减仓价", price, target: item.plan.targetPrice1, distance: Math.abs((price - item.plan.targetPrice1) / item.plan.targetPrice1) * 100, detail: item.riskReasons[0] ?? item.summary, quote: item.quote });
+      }
+      return signals;
+    })
+    .sort((a, b) => a.distance - b.distance)[0] ?? null;
+}
+
+function decisionStatusLabel(status: StockDecision["status"]) {
+  return {
+    buy_in_batches: "分批买入",
+    wait_for_pullback: "等待回调",
+    hold: "继续持有",
+    consider_reduce: "考虑减仓",
+    high_risk: "风险较高",
+    insufficient_data: "数据不足"
+  }[status];
 }
 
 function decideStatus({ holding, watch, score, riskControl, targetSell }: { holding: DashboardHolding; watch?: WatchlistRecord; score?: AiScoreSummary; riskControl: number | null; targetSell: number | null }): DecisionStatus {
@@ -365,16 +428,26 @@ function CompactHolding({ holding }: { holding: DashboardHolding }) {
   );
 }
 
-function DecisionSummary({ item }: { item: DecisionCard }) {
+function DecisionSummary({ item }: { item: StockDecision }) {
   return (
     <article className="rounded-md border border-line bg-panel p-4">
-      <p className="font-semibold text-ink">{item.ticker} · {item.status}</p>
-      <p className="mt-1 text-sm text-muted">{item.riskReason}</p>
+      <p className="font-semibold text-ink">{item.symbol} · {decisionStatusLabel(item.status)}</p>
+      <p className="mt-1 text-sm text-muted">{item.riskReasons[0] ?? item.summary}</p>
     </article>
   );
 }
 
-function PlanSignal({ signal }: { signal: NonNullable<ReturnType<typeof findClosestBuy>> | NonNullable<ReturnType<typeof findClosestExit>> }) {
+type PlanSignalItem = {
+  ticker: string;
+  label: string;
+  price: number;
+  target: number;
+  distance: number;
+  detail: string;
+  quote?: MarketQuote | null;
+};
+
+function PlanSignal({ signal }: { signal: PlanSignalItem }) {
   return (
     <article className="rounded-md border border-line bg-panel p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -410,8 +483,8 @@ function Notice({ children }: { children: React.ReactNode }) {
   return <p className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{children}</p>;
 }
 
-function EmptyState() {
-  return <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">暂无可靠结论</p>;
+function EmptyState({ text = "暂无可靠结论" }: { text?: string }) {
+  return <p className="rounded-md border border-line bg-panel px-3 py-8 text-center text-sm text-muted">{text}</p>;
 }
 
 function LoadingState() {

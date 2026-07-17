@@ -5,6 +5,7 @@ import { DataSyncStatus, type DataSyncState } from "@/components/data-sync-statu
 import { LocalStorageMigrationCard } from "@/components/local-storage-migration-card";
 import { PageHeader } from "@/components/page-header";
 import type { PortfolioAccount } from "@/lib/types";
+import type { TradePlan } from "@/lib/trade-plans";
 import { watchlistGroups, type EnrichedWatchlistItem, type WatchlistGroup } from "@/lib/watchlist";
 
 type FormState = {
@@ -13,6 +14,16 @@ type FormState = {
   group: WatchlistGroup;
   targetBuyPrice: string;
   targetSellPrice: string;
+  buyZoneLow: string;
+  buyZoneHigh: string;
+  addPrice1: string;
+  addPrice2: string;
+  riskControlPrice: string;
+  targetPrice1: string;
+  targetPrice2: string;
+  maxPositionWeight: string;
+  thesis: string;
+  invalidationConditions: string;
   watchReason: string;
   notes: string;
 };
@@ -26,12 +37,23 @@ const emptyForm: FormState = {
   group: "重点观察",
   targetBuyPrice: "",
   targetSellPrice: "",
+  buyZoneLow: "",
+  buyZoneHigh: "",
+  addPrice1: "",
+  addPrice2: "",
+  riskControlPrice: "",
+  targetPrice1: "",
+  targetPrice2: "",
+  maxPositionWeight: "",
+  thesis: "",
+  invalidationConditions: "",
   watchReason: "",
   notes: ""
 };
 
 export default function WatchlistPage() {
   const [items, setItems] = useState<EnrichedWatchlistItem[]>([]);
+  const [plans, setPlans] = useState<Record<string, TradePlan>>({});
   const [accounts, setAccounts] = useState<PortfolioAccount[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<typeof allGroups | WatchlistGroup>(allGroups);
   const [sortByAiScore, setSortByAiScore] = useState(true);
@@ -65,11 +87,14 @@ export default function WatchlistPage() {
         fetch("/api/watchlist", { cache: "no-store" }),
         fetch("/api/accounts", { cache: "no-store" })
       ]);
+      const plansResponse = await fetch("/api/trade-plans", { cache: "no-store" }).catch(() => null);
       const watchlistData = await watchlistResponse.json();
       const accountsData = await accountsResponse.json();
+      const plansData = await plansResponse?.json().catch(() => null);
 
       setItems(readArrayPayload<EnrichedWatchlistItem>(watchlistData, "items"));
       setAccounts(Array.isArray(accountsData) ? accountsData : []);
+      setPlans(Object.fromEntries(readArrayPayload<TradePlan>(plansData).map((plan) => [plan.symbol, plan])));
       if (!watchlistResponse.ok) throw new Error(watchlistData.error ?? "自选股加载失败。");
       if (watchlistData.error) setError(watchlistData.error);
       setSyncState("synced");
@@ -107,6 +132,8 @@ export default function WatchlistPage() {
       if (!response.ok) throw new Error(data.error ?? "自选股保存失败。");
       const savedItem = readObjectPayload<EnrichedWatchlistItem>(data);
       if (!savedItem) throw new Error("自选股保存失败。");
+      const savedPlan = await saveTradePlan(savedItem.ticker);
+      if (savedPlan) setPlans((current) => ({ ...current, [savedPlan.symbol]: savedPlan }));
 
       setItems((current) => (editingId ? current.map((item) => (item.id === savedItem.id ? savedItem : item)) : [savedItem, ...current.filter((item) => item.id !== savedItem.id)]));
       setForm(emptyForm);
@@ -178,6 +205,7 @@ export default function WatchlistPage() {
   }
 
   function editItem(item: EnrichedWatchlistItem) {
+    const plan = plans[item.ticker.toUpperCase()];
     setEditingId(item.id);
     setForm({
       ticker: item.ticker,
@@ -185,6 +213,16 @@ export default function WatchlistPage() {
       group: item.group,
       targetBuyPrice: item.targetBuyPrice?.toString() ?? "",
       targetSellPrice: item.targetSellPrice?.toString() ?? "",
+      buyZoneLow: plan?.buyZoneLow?.toString() ?? "",
+      buyZoneHigh: plan?.buyZoneHigh?.toString() ?? "",
+      addPrice1: plan?.addPrice1?.toString() ?? "",
+      addPrice2: plan?.addPrice2?.toString() ?? "",
+      riskControlPrice: plan?.riskControlPrice?.toString() ?? "",
+      targetPrice1: plan?.targetPrice1?.toString() ?? "",
+      targetPrice2: plan?.targetPrice2?.toString() ?? "",
+      maxPositionWeight: plan?.maxPositionWeight?.toString() ?? "",
+      thesis: plan?.thesis ?? "",
+      invalidationConditions: plan?.invalidationConditions?.join("\n") ?? "",
       watchReason: item.watchReason ?? "",
       notes: item.notes ?? ""
     });
@@ -199,6 +237,30 @@ export default function WatchlistPage() {
 
   function setFormValue<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function saveTradePlan(symbol: string) {
+    const response = await fetch("/api/trade-plans", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol,
+        buyZoneLow: form.buyZoneLow || null,
+        buyZoneHigh: form.buyZoneHigh || null,
+        addPrice1: form.addPrice1 || null,
+        addPrice2: form.addPrice2 || null,
+        riskControlPrice: form.riskControlPrice || null,
+        targetPrice1: form.targetPrice1 || null,
+        targetPrice2: form.targetPrice2 || null,
+        maxPositionWeight: form.maxPositionWeight || null,
+        thesis: form.thesis || null,
+        invalidationConditions: form.invalidationConditions,
+        notes: form.notes || null
+      })
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(payload?.error ?? "买卖计划保存失败。");
+    return readObjectPayload<TradePlan>(payload);
   }
 
   return (
@@ -257,6 +319,36 @@ export default function WatchlistPage() {
           <Field label="关注理由">
             <input value={form.watchReason} onChange={(event) => setFormValue("watchReason", event.target.value)} className="input" placeholder="AI、回调、财报前..." />
           </Field>
+          <Field label="买入区间下限">
+            <input type="number" min="0" step="0.01" value={form.buyZoneLow} onChange={(event) => setFormValue("buyZoneLow", event.target.value)} className="input" placeholder="我的计划" />
+          </Field>
+          <Field label="买入区间上限">
+            <input type="number" min="0" step="0.01" value={form.buyZoneHigh} onChange={(event) => setFormValue("buyZoneHigh", event.target.value)} className="input" placeholder="我的计划" />
+          </Field>
+          <Field label="第一加仓价">
+            <input type="number" min="0" step="0.01" value={form.addPrice1} onChange={(event) => setFormValue("addPrice1", event.target.value)} className="input" />
+          </Field>
+          <Field label="第二加仓价">
+            <input type="number" min="0" step="0.01" value={form.addPrice2} onChange={(event) => setFormValue("addPrice2", event.target.value)} className="input" />
+          </Field>
+          <Field label="风险控制价">
+            <input type="number" min="0" step="0.01" value={form.riskControlPrice} onChange={(event) => setFormValue("riskControlPrice", event.target.value)} className="input" />
+          </Field>
+          <Field label="第一目标价">
+            <input type="number" min="0" step="0.01" value={form.targetPrice1} onChange={(event) => setFormValue("targetPrice1", event.target.value)} className="input" />
+          </Field>
+          <Field label="第二目标价">
+            <input type="number" min="0" step="0.01" value={form.targetPrice2} onChange={(event) => setFormValue("targetPrice2", event.target.value)} className="input" />
+          </Field>
+          <Field label="最大计划仓位%">
+            <input type="number" min="0" max="100" step="0.1" value={form.maxPositionWeight} onChange={(event) => setFormValue("maxPositionWeight", event.target.value)} className="input" />
+          </Field>
+          <Field label="投资逻辑">
+            <input value={form.thesis} onChange={(event) => setFormValue("thesis", event.target.value)} className="input" placeholder="为什么值得持有或观察" />
+          </Field>
+          <Field label="逻辑失效条件">
+            <textarea value={form.invalidationConditions} onChange={(event) => setFormValue("invalidationConditions", event.target.value)} className="input min-h-20" placeholder="每行一条" />
+          </Field>
           <Field label="备注">
             <input value={form.notes} onChange={(event) => setFormValue("notes", event.target.value)} className="input" placeholder="记录你的观察计划" />
           </Field>
@@ -290,7 +382,7 @@ export default function WatchlistPage() {
           <table className="min-w-[1280px] border-separate border-spacing-0 text-left text-sm">
             <thead>
               <tr>
-                {["分组", "股票", "当前价格", "今日涨跌", "AI Score", "Rating", "最近财报", "近期预警", "目标价提醒", "数据来源", "理由 / 备注", "操作"].map((column) => (
+                {["分组", "股票", "当前价格", "今日涨跌", "AI Score", "Rating", "最近财报", "近期预警", "目标价提醒", "数据来源", "我的计划", "理由 / 备注", "操作"].map((column) => (
                   <th key={column} className="border-b border-line bg-panel px-3 py-3 font-semibold text-muted first:rounded-l-md last:rounded-r-md">
                     {column}
                   </th>
@@ -300,12 +392,14 @@ export default function WatchlistPage() {
             <tbody>
               {!isLoading && filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-3 py-10 text-center text-muted">
+                  <td colSpan={13} className="px-3 py-10 text-center text-muted">
                     暂无自选股。添加第一只股票后，它会自动进入预警扫描和事件日历范围。
                   </td>
                 </tr>
               ) : null}
-              {filteredItems.map((item) => (
+              {filteredItems.map((item) => {
+                const plan = plans[item.ticker.toUpperCase()];
+                return (
                 <tr key={item.id} className="hover:bg-panel/70">
                   <td className="border-b border-line px-3 py-3"><GroupBadge group={item.group} /></td>
                   <td className="border-b border-line px-3 py-3">
@@ -328,6 +422,14 @@ export default function WatchlistPage() {
                       <SourceBadge label={`事件 ${item.eventDataSource}`} />
                     </div>
                   </td>
+                  <td className="border-b border-line px-3 py-3 text-xs text-muted">
+                    {plan ? (
+                      <div className="space-y-1">
+                        <p>买入 {formatCurrencyOrDash(plan.buyZoneLow)} - {formatCurrencyOrDash(plan.buyZoneHigh)}</p>
+                        <p>风控 {formatCurrencyOrDash(plan.riskControlPrice)} · 上限 {formatPercentOrDash(plan.maxPositionWeight)}</p>
+                      </div>
+                    ) : "未设置"}
+                  </td>
                   <td className="border-b border-line px-3 py-3 text-muted">
                     <p>{item.watchReason ?? "-"}</p>
                     {item.notes ? <p className="mt-1 text-xs">{item.notes}</p> : null}
@@ -340,7 +442,7 @@ export default function WatchlistPage() {
                     </div>
                   </td>
                 </tr>
-              ))}
+              );})}
             </tbody>
           </table>
         </div>
@@ -401,6 +503,14 @@ function getRatingClass(score: number) {
 
 function formatCurrency(value: number) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+}
+
+function formatCurrencyOrDash(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? formatCurrency(value) : "--";
+}
+
+function formatPercentOrDash(value: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(1)}%` : "--";
 }
 
 function formatPercent(value: number) {
