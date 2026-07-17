@@ -7,6 +7,17 @@ const statusLabels: Record<StockDecisionStatus, string> = {
   hold: "继续持有",
   consider_reduce: "考虑减仓",
   high_risk: "风险较高",
+  trigger_risk_control: "触发风险控制",
+  plan_not_set: "尚未设置计划",
+  insufficient_data: "数据不足"
+};
+
+const researchLabels: Record<StockDecision["researchJudgment"], string> = {
+  positive: "偏积极",
+  neutral_positive: "中性偏积极",
+  neutral: "中性",
+  cautious: "谨慎",
+  high_risk: "风险较高",
   insufficient_data: "数据不足"
 };
 
@@ -16,10 +27,13 @@ export function StockDecisionCard({ decision, compact = false }: { decision: Sto
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-signal">当前决策</p>
-          <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">{decision.symbol} · {statusLabels[decision.status]}</h2>
+          <h2 className="mt-1 text-2xl font-bold tracking-normal text-ink">{decision.symbol}</h2>
           <p className="mt-2 text-sm leading-6 text-muted">{decision.summary}</p>
         </div>
-        <span className={`rounded-md px-3 py-1 text-sm font-semibold ${statusClass(decision.status)}`}>{statusLabels[decision.status]}</span>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <span className="rounded-md bg-blue-100 px-3 py-1 text-sm font-semibold text-blue-700">研究判断：{researchLabels[decision.researchJudgment]}</span>
+          <span className={`rounded-md px-3 py-1 text-sm font-semibold ${statusClass(decision.actionStatus)}`}>行动状态：{statusLabels[decision.actionStatus]}</span>
+        </div>
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -75,8 +89,10 @@ export function StockDecisionCard({ decision, compact = false }: { decision: Sto
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center gap-3 text-sm text-muted">
-        <span>覆盖率 {(decision.dataCoverage * 100).toFixed(0)}%</span>
+        <span>数据覆盖率 {(decision.dataCoverage * 100).toFixed(0)}%</span>
         <span>可信度 {decision.confidence}</span>
+        <span>用户计划完整度 {decision.planCompleteness.completed}/{decision.planCompleteness.total}项已填写</span>
+        <span>仓位计算覆盖率 {(decision.positionWeightCoverage * 100).toFixed(0)}%</span>
         <span>更新 {decision.dataUpdatedAt ? formatDateTime(decision.dataUpdatedAt) : "--"}</span>
         <DataSourceBadge quote={decision.quote} />
       </div>
@@ -115,7 +131,8 @@ function statusClass(status: StockDecisionStatus) {
   if (status === "wait_for_pullback") return "bg-blue-100 text-blue-700";
   if (status === "hold") return "bg-slate-100 text-slate-700";
   if (status === "consider_reduce") return "bg-amber-100 text-amber-800";
-  if (status === "high_risk") return "bg-red-100 text-red-700";
+  if (status === "high_risk" || status === "trigger_risk_control") return "bg-red-100 text-red-700";
+  if (status === "plan_not_set") return "bg-violet-100 text-violet-700";
   return "bg-slate-100 text-slate-500";
 }
 
@@ -132,7 +149,7 @@ function moneyOrDash(value: number | null) {
 }
 
 function percentOrDash(value: number | null) {
-  return typeof value === "number" && Number.isFinite(value) ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}%` : "--";
+  return typeof value === "number" && Number.isFinite(value) ? `${value.toFixed(2)}%` : "--";
 }
 
 function formatDate(value: string) {

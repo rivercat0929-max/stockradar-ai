@@ -11,7 +11,7 @@ import { calculateValuation } from "@/lib/valuation/calculate";
 
 export type AiScoreDataSource = "真实数据" | "真实数据计算" | "缓存数据" | "数据可能过期" | "暂无可靠数据";
 export type AiScoreDimensionKey = "trend" | "growth" | "valuation" | "quality" | "risk";
-export type AssetType = "stock" | "etf" | "fund" | "reit" | "index" | "unknown";
+export type AssetType = "stock" | "etf" | "leveraged_etf" | "inverse_etf" | "reit" | "fund" | "index" | "unknown";
 export type Confidence = "high" | "medium" | "low" | "insufficient";
 
 export type AiScoreDimension = {
@@ -90,12 +90,10 @@ export async function getAiScore(ticker: string): Promise<AiScoreResult> {
   const stale = getStaleCache<AiScoreResult>(cacheKey);
 
   try {
-    const [quote, fundamentals, history] = await Promise.all([
-      getQuote(symbol),
-      getSecFundamentals(symbol),
-      getHistoricalPrices(symbol)
-    ]);
-    const result = buildRealDataScore(symbol, quote, fundamentals, history);
+    const [quote, history] = await Promise.all([getQuote(symbol), getHistoricalPrices(symbol)]);
+    const assetType = detectAssetType(symbol, quote);
+    const fundamentals = usesCompanyFundamentals(assetType) ? await getSecFundamentals(symbol) : emptyFundamentals(symbol, assetType);
+    const result = buildRealDataScore(symbol, quote, fundamentals, history, assetType);
     if (!result.stale) setCache(cacheKey, result, scoreCacheTtlMs);
     return result;
   } catch (error) {
@@ -124,8 +122,7 @@ export function toAiScoreSummary(result: AiScoreResult): AiScoreSummary {
   };
 }
 
-function buildRealDataScore(symbol: string, quote: Quote, fundamentals: Awaited<ReturnType<typeof getSecFundamentals>>, history: Awaited<ReturnType<typeof getHistoricalPrices>>): AiScoreResult {
-  const assetType = detectAssetType(symbol, quote);
+function buildRealDataScore(symbol: string, quote: Quote, fundamentals: Awaited<ReturnType<typeof getSecFundamentals>>, history: Awaited<ReturnType<typeof getHistoricalPrices>>, assetType: AssetType): AiScoreResult {
   const technical = history.ok ? calculateTechnicalIndicators(history.bars) : null;
   const growth = calculateGrowth(fundamentals.quarterly, fundamentals.annual);
   const quality = calculateQuality(fundamentals.quarterly, fundamentals.annual);
@@ -140,15 +137,15 @@ function buildRealDataScore(symbol: string, quote: Quote, fundamentals: Awaited<
     latestPeriod: latest,
     priceSource: `${quote.source} ${quote.updatedAt ?? quote.fetchedAt}`
   });
-  const dimensions = assetType === "etf" || assetType === "fund"
-    ? buildEtfDimensions(technical, quote, history)
+  const dimensions = isFundLike(assetType)
+    ? buildEtfDimensions(technical, quote, history, assetType)
     : buildStockDimensions({ technical, growth, quality, valuation, quote, fundamentalsStatus: fundamentals.status, historyStatus: history.source });
   const scoring = calculateOverallScore(dimensions);
   const warnings = [
     ...fundamentals.warnings,
     ...history.warnings,
     "暂未接入可靠情绪数据源，不参与正式评分",
-    ...(assetType === "etf" || assetType === "fund" ? ["ETF基础数据不足，暂不生成完整股票模型评分"] : [])
+    ...getAssetWarnings(assetType)
   ].filter(Boolean);
   const rating = scoring.overallScore === null ? "Insufficient" : getRating(scoring.overallScore);
   const ratingLabel = scoring.overallScore === null ? "数据不足，暂不生成综合评分" : getRatingLabel(rating);
@@ -191,7 +188,7 @@ function buildRealDataScore(symbol: string, quote: Quote, fundamentals: Awaited<
     dataSource: getOverallDataSource(dimensions),
     dataSourceDetails: buildDataSourceDetails(quote, fundamentals, history),
     assetType,
-    scoreMode: scoring.confidence === "insufficient" ? "insufficient" : assetType === "etf" || assetType === "fund" ? "etf_limited" : "real_data",
+    scoreMode: scoring.confidence === "insufficient" ? "insufficient" : isFundLike(assetType) ? "etf_limited" : "real_data",
     stale: quote.isStale || quote.source === "stale-cache" || history.source === "stale-cache" || fundamentals.status === "stale-cache",
     marketQuote,
     fundamentals,
@@ -220,14 +217,21 @@ function buildStockDimensions(input: {
   ];
 }
 
-function buildEtfDimensions(technical: ReturnType<typeof calculateTechnicalIndicators> | null, quote: Quote, history: Awaited<ReturnType<typeof getHistoricalPrices>>): AiScoreDimension[] {
+function buildEtfDimensions(technical: ReturnType<typeof calculateTechnicalIndicators> | null, quote: Quote, history: Awaited<ReturnType<typeof getHistoricalPrices>>, assetType: AssetType): AiScoreDimension[] {
   return [
     trendDimension(technical, history.source),
-    unavailableDimension("growth", "成长", "ETF不使用单公司营收/EPS成长模型"),
-    unavailableDimension("valuation", "估值", "暂未接入可靠ETF官方估值数据"),
-    unavailableDimension("quality", "盈利质量", "ETF不适用单公司盈利质量模型"),
+    liquidityDimension(technical),
+    unavailableDimension("valuation", "基金估值", "暂未接入可靠基金估值数据"),
+    unavailableDimension("quality", assetType === "leveraged_etf" || assetType === "inverse_etf" ? "杠杆结构风险" : "费用效率/持仓集中度", assetType === "leveraged_etf" || assetType === "inverse_etf" ? "暂未接入真实杠杆ETF费用、跟踪误差和持仓集中度数据" : "暂未接入真实ETF费用率和持仓集中度数据"),
     riskDimension(technical, quote)
   ];
+}
+
+function liquidityDimension(technical: ReturnType<typeof calculateTechnicalIndicators> | null): AiScoreDimension {
+  if (!technical) return unavailableDimension("growth", "流动性", "历史成交量不足");
+  const item = scoreLiquidity(technical.averageVolume20, "20日平均成交量");
+  if (!item) return unavailableDimension("growth", "流动性", "平均成交量不可用");
+  return dimension("growth", "流动性", item.score, "calculated", "FMP/Yahoo historical prices", [item.name], ["费用率", "持仓集中度"], "由真实历史成交量计算，ETF不使用单公司营收/EPS成长模型。");
 }
 
 function trendDimension(technical: ReturnType<typeof calculateTechnicalIndicators> | null, source: string): AiScoreDimension {
@@ -316,10 +320,35 @@ function calculateOverallScore(dimensions: AiScoreDimension[]): { overallScore: 
 }
 
 function detectAssetType(symbol: string, quote: Quote): AssetType {
-  const etfs = new Set(["SPY", "QQQ", "VOO", "VTI", "IWM", "DIA", "TQQQ", "SQQQ", "TSLL"]);
+  const leveragedEtfs: Record<string, string> = { TSLL: "TSLA 2x", TQQQ: "NASDAQ-100 3x", SOXL: "Semiconductors 3x" };
+  const inverseEtfs: Record<string, string> = { SQQQ: "NASDAQ-100 -3x", SOXS: "Semiconductors -3x" };
+  const etfs = new Set(["SPY", "QQQ", "VOO", "VTI", "IWM", "DIA"]);
+  const indexes = new Set(["SPX", "SPY500", "NDX", "DJI", "IXIC"]);
+  if (symbol in leveragedEtfs) return "leveraged_etf";
+  if (symbol in inverseEtfs) return "inverse_etf";
+  if (indexes.has(symbol)) return "index";
   const name = (quote.name ?? "").toLowerCase();
-  if (etfs.has(symbol) || name.includes("etf") || name.includes("fund") || name.includes("trust")) return "etf";
+  if (name.includes("reit")) return "reit";
+  if (etfs.has(symbol) || name.includes("etf") || name.includes("exchange traded") || name.includes("fund") || name.includes("trust")) return "etf";
   return "stock";
+}
+
+function usesCompanyFundamentals(assetType: AssetType) {
+  return assetType === "stock" || assetType === "reit";
+}
+
+function isFundLike(assetType: AssetType) {
+  return assetType === "etf" || assetType === "leveraged_etf" || assetType === "inverse_etf" || assetType === "fund" || assetType === "index";
+}
+
+function emptyFundamentals(symbol: string, assetType: AssetType): Awaited<ReturnType<typeof getSecFundamentals>> {
+  return { symbol, cik: null, companyName: null, status: "unavailable", source: "SEC Company Facts", updatedAt: null, annual: [], quarterly: [], warnings: isFundLike(assetType) ? [] : ["暂未获得可靠公司财务数据"] };
+}
+
+function getAssetWarnings(assetType: AssetType) {
+  if (assetType === "leveraged_etf" || assetType === "inverse_etf") return ["该资产为每日重置杠杆ETF，长期表现可能明显偏离标的累计涨跌。", "杠杆ETF存在每日重置风险和波动损耗风险，通常不适合长期持有。"];
+  if (isFundLike(assetType)) return ["ETF/基金不使用单公司营收、EPS、净利润等SEC Company Facts。"];
+  return [];
 }
 
 function scoreAbove(current: number | null, ma: number | null, name: string) {
@@ -404,7 +433,7 @@ function buildRisks(dimensions: AiScoreDimension[], warnings: string[]) {
 function buildSummaryText(symbol: string, scoring: ReturnType<typeof calculateOverallScore>, dimensions: AiScoreDimension[], assetType: AssetType) {
   if (scoring.overallScore === null) return `${symbol} 当前数据覆盖率 ${(scoring.dataCoverage * 100).toFixed(0)}%，低于生成综合评分的最低要求。`;
   const best = [...dimensions].filter((item) => item.score !== null).sort((a, b) => (b.score ?? 0) - (a.score ?? 0))[0];
-  return `${symbol} 基于真实行情、历史K线和SEC财务数据的综合评分为 ${scoring.overallScore}/100，覆盖率 ${(scoring.dataCoverage * 100).toFixed(0)}%。${assetType === "etf" ? "该资产按ETF有限模型处理。" : ""} 当前较强维度：${best?.label ?? "暂无"}。`;
+  return `${symbol} 基于真实行情${isFundLike(assetType) ? "和历史K线" : "、历史K线和SEC财务数据"}的综合评分为 ${scoring.overallScore}/100，覆盖率 ${(scoring.dataCoverage * 100).toFixed(0)}%。${isFundLike(assetType) ? "该资产按ETF/基金有限模型处理。" : ""} 当前较强维度：${best?.label ?? "暂无"}。`;
 }
 
 function getOverallDataSource(dimensions: AiScoreDimension[]): AiScoreDataSource {
@@ -415,9 +444,10 @@ function getOverallDataSource(dimensions: AiScoreDimension[]): AiScoreDataSource
 }
 
 function buildDataSourceDetails(quote: Quote, fundamentals: Awaited<ReturnType<typeof getSecFundamentals>>, history: Awaited<ReturnType<typeof getHistoricalPrices>>) {
+  const hasSec = fundamentals.cik !== null || fundamentals.annual.length > 0 || fundamentals.quarterly.length > 0;
   return [
     `行情来源：${quote.source}，更新于 ${quote.updatedAt ?? quote.fetchedAt}`,
-    `SEC财务来源：${fundamentals.status}，CIK ${fundamentals.cik ?? "暂无"}`,
+    hasSec ? `SEC财务来源：${fundamentals.status}，CIK ${fundamentals.cik}` : "SEC财务来源：不适用或暂未获得可靠公司财务数据",
     `历史K线来源：${history.source}，更新于 ${history.updatedAt ?? "暂无"}`,
     "Forward PE：暂无可靠分析师一致预期，不显示。",
     "情绪评分：暂未接入可靠情绪数据源，不参与正式评分。"

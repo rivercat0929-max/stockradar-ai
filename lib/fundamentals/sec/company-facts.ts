@@ -16,7 +16,7 @@ export async function getSecFundamentals(symbol: string): Promise<NormalizedFund
       updatedAt: null,
       annual: [],
       quarterly: [],
-      warnings: [cik.error]
+      warnings: [cik.error.includes("CIK") ? "暂未获得可靠公司财务数据" : cik.error]
     };
   }
 

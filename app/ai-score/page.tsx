@@ -44,7 +44,7 @@ type AiScoreResponse = {
   aiSummary: string;
   dataSource: DataSource;
   dataSourceDetails: string[];
-  assetType?: "stock" | "etf" | "fund" | "reit" | "index" | "unknown";
+  assetType?: "stock" | "etf" | "leveraged_etf" | "inverse_etf" | "fund" | "reit" | "index" | "unknown";
   scoreMode?: "real_data" | "insufficient" | "etf_limited";
   stale?: boolean;
   marketQuote: MarketQuote;

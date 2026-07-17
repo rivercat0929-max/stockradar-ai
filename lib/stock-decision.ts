@@ -12,17 +12,24 @@ export type StockDecisionStatus =
   | "hold"
   | "consider_reduce"
   | "high_risk"
+  | "trigger_risk_control"
+  | "plan_not_set"
   | "insufficient_data";
+
+export type ResearchJudgment = "positive" | "neutral_positive" | "neutral" | "cautious" | "high_risk" | "insufficient_data";
 
 export interface StockDecision {
   symbol: string;
   status: StockDecisionStatus;
+  actionStatus: StockDecisionStatus;
+  researchJudgment: ResearchJudgment;
   headline: string;
   summary: string;
   currentPrice: number | null;
   averageCost: number | null;
   returnPercent: number | null;
   positionWeight: number | null;
+  positionWeightCoverage: number;
   supportingReasons: string[];
   riskReasons: string[];
   plan: {
@@ -41,6 +48,7 @@ export interface StockDecision {
   confidence: Confidence;
   dataUpdatedAt: string | null;
   warnings: string[];
+  planCompleteness: { completed: number; total: number };
   systemReference: SystemReference;
   events: DecisionEvent[];
   assetType: string;
@@ -73,6 +81,7 @@ type DecisionContext = {
   quote: MarketQuote | null;
   holding: Holding | null;
   totalMarketValue: number;
+  positionWeightCoverage: number;
   plan: TradePlan | null;
   events: MarketEvent[];
 };
@@ -82,14 +91,14 @@ export async function getStockDecision(symbol: string): Promise<StockDecision> {
   const [holdings, plans] = await Promise.all([safeHoldings(), safePlans()]);
   const holding = holdings.find((item) => item.ticker.trim().toUpperCase() === normalized) ?? null;
   const plan = plans.find((item) => item.symbol === normalized) ?? await getTradePlan(normalized).catch(() => null);
-  const totalMarketValue = holdings.reduce((sum, item) => sum + (finite(item.marketValue) ? item.marketValue : finite(item.currentPrice) ? item.currentPrice * item.shares : 0), 0);
 
   const [score, quote] = await Promise.all([
     getAiScore(normalized).catch(() => null),
     getQuote(normalized).catch(() => null)
   ]);
+  const portfolio = await getPortfolioContext(holdings, normalized, toDecisionQuote(score, quote));
   const events = await getDecisionEvents(normalized);
-  return buildStockDecision({ symbol: normalized, score, quote: toDecisionQuote(score, quote), holding, totalMarketValue, plan, events });
+  return buildStockDecision({ symbol: normalized, score, quote: toDecisionQuote(score, quote), holding, totalMarketValue: portfolio.totalMarketValue, positionWeightCoverage: portfolio.coverage, plan, events });
 }
 
 export async function getStockDecisions(symbols: string[]): Promise<{ results: StockDecision[]; errors: Array<{ symbol: string; error: string }> }> {
@@ -102,7 +111,7 @@ export async function getStockDecisions(symbols: string[]): Promise<{ results: S
 }
 
 export function buildStockDecision(context: DecisionContext): StockDecision {
-  const { symbol, score, quote, holding, totalMarketValue, plan, events } = context;
+  const { symbol, score, quote, holding, totalMarketValue, positionWeightCoverage, plan, events } = context;
   const currentPrice = finite(quote?.price) ? quote.price : finite(score?.price) ? score.price : null;
   const marketValue = holding && currentPrice !== null ? holding.shares * currentPrice : null;
   const averageCost = holding?.averageCost ?? null;
@@ -118,21 +127,26 @@ export function buildStockDecision(context: DecisionContext): StockDecision {
   if (quote?.source === "unavailable") baseWarnings.push("当前价格不可用。");
   if (events.some((event) => event.type === "earnings")) baseWarnings.push("未来7天存在财报事件，请控制仓位波动。");
 
-  const riskReasons = buildRiskReasons({ currentPrice, positionWeight, plan, dimensions, quote, dataCoverage, confidence });
+  const riskReasons = buildRiskReasons({ currentPrice, positionWeight, plan, dimensions, quote, dataCoverage, confidence, score });
   const supportingReasons = buildSupportingReasons({ currentPrice, positionWeight, plan, dimensions, score, holding });
-  const status = decideStatus({ currentPrice, positionWeight, plan, dimensions, dataCoverage, confidence, quote, score, riskReasons });
-  const headline = statusLabel(status);
-  const summary = buildSummary(status, supportingReasons, riskReasons, plan, holding);
+  const researchJudgment = decideResearchJudgment({ score, dimensions, dataCoverage, confidence, quote });
+  const planCompleteness = getPlanCompleteness(plan);
+  const actionStatus = decideActionStatus({ currentPrice, positionWeight, plan, dimensions, dataCoverage, confidence, quote, score, riskReasons, researchJudgment, planCompleteness });
+  const headline = statusLabel(actionStatus);
+  const summary = buildSummary(actionStatus, researchJudgment, supportingReasons, riskReasons, plan, holding);
 
   return {
     symbol,
-    status,
+    status: actionStatus,
+    actionStatus,
+    researchJudgment,
     headline,
     summary,
     currentPrice,
     averageCost,
     returnPercent,
     positionWeight,
+    positionWeightCoverage,
     supportingReasons: supportingReasons.slice(0, 3),
     riskReasons: riskReasons.slice(0, 3),
     plan: {
@@ -151,6 +165,7 @@ export function buildStockDecision(context: DecisionContext): StockDecision {
     confidence,
     dataUpdatedAt,
     warnings: Array.from(new Set(baseWarnings)).slice(0, 6),
+    planCompleteness,
     systemReference,
     events: events.map(toDecisionEvent),
     assetType: score?.assetType ?? "unknown",
@@ -158,7 +173,28 @@ export function buildStockDecision(context: DecisionContext): StockDecision {
   };
 }
 
-function decideStatus(input: {
+function decideResearchJudgment(input: {
+  score: AiScoreResult | null;
+  dimensions: Map<string, NonNullable<AiScoreResult["dimensions"]>[number]>;
+  dataCoverage: number;
+  confidence: Confidence;
+  quote: MarketQuote | null;
+}): ResearchJudgment {
+  const { score, dimensions, dataCoverage, confidence, quote } = input;
+  if (!score || dataCoverage < 0.45 || confidence === "insufficient" || quote?.source === "unavailable") return "insufficient_data";
+  const risk = scoreOf(dimensions, "risk");
+  const trend = scoreOf(dimensions, "trend");
+  const valuation = scoreOf(dimensions, "valuation");
+  const growth = scoreOf(dimensions, "growth");
+  const quality = scoreOf(dimensions, "quality");
+  if (risk !== null && risk < 45) return "high_risk";
+  if ((trend ?? 0) >= 60 && ((growth ?? quality ?? 0) >= 55 || score.assetType !== "stock") && (valuation === null || valuation >= 45)) return "neutral_positive";
+  if ((valuation !== null && valuation < 45) || (trend !== null && trend < 45)) return "cautious";
+  if ((score.overallScore ?? 0) >= 70) return "positive";
+  return "neutral";
+}
+
+function decideActionStatus(input: {
   currentPrice: number | null;
   positionWeight: number | null;
   plan: TradePlan | null;
@@ -168,17 +204,20 @@ function decideStatus(input: {
   quote: MarketQuote | null;
   score: AiScoreResult | null;
   riskReasons: string[];
+  researchJudgment: ResearchJudgment;
+  planCompleteness: { completed: number; total: number };
 }): StockDecisionStatus {
-  const { currentPrice, positionWeight, plan, dimensions, dataCoverage, confidence, quote, score, riskReasons } = input;
+  const { currentPrice, positionWeight, plan, dimensions, dataCoverage, confidence, quote, score, riskReasons, planCompleteness } = input;
   if (dataCoverage < 0.45 || currentPrice === null || !score || score.assetType === "unknown" || confidence === "insufficient") return "insufficient_data";
   if (quote?.source === "unavailable" || quote?.source === "stale-cache" || quote?.isStale) return "insufficient_data";
+  if (plan?.riskControlPrice !== null && plan?.riskControlPrice !== undefined && currentPrice <= plan.riskControlPrice) return "trigger_risk_control";
   if (riskReasons.length >= 2 || scoreOf(dimensions, "risk") !== null && scoreOf(dimensions, "risk")! < 45) return "high_risk";
-  if (plan?.riskControlPrice !== null && plan?.riskControlPrice !== undefined && currentPrice <= plan.riskControlPrice) return "high_risk";
   if (finite(plan?.maxPositionWeight) && finite(positionWeight) && positionWeight > plan!.maxPositionWeight! * 1.15) return "consider_reduce";
   if (finite(plan?.targetPrice2) && currentPrice >= plan!.targetPrice2!) return "consider_reduce";
   if (finite(plan?.targetPrice1) && currentPrice >= plan!.targetPrice1!) return "consider_reduce";
+  if (!hasCompleteCorePlan(plan)) return "plan_not_set";
   if (isInBuyZone(currentPrice, plan) && qualityOk(dimensions) && growthOk(dimensions) && riskOk(dimensions) && belowMaxPosition(positionWeight, plan)) return "buy_in_batches";
-  if (plan?.buyZoneHigh && currentPrice > plan.buyZoneHigh && qualityOk(dimensions) && belowMaxPosition(positionWeight, plan)) return "wait_for_pullback";
+  if ((plan?.buyZoneHigh && currentPrice > plan.buyZoneHigh && belowMaxPosition(positionWeight, plan)) || (input.researchJudgment === "neutral_positive" && scoreOf(dimensions, "valuation") !== null && scoreOf(dimensions, "valuation")! < 55)) return "wait_for_pullback";
   return "hold";
 }
 
@@ -188,17 +227,18 @@ function buildSupportingReasons(input: { currentPrice: number | null; positionWe
   const growth = scoreOf(input.dimensions, "growth");
   const valuation = scoreOf(input.dimensions, "valuation");
   const trend = scoreOf(input.dimensions, "trend");
-  if (quality !== null && quality >= 60) reasons.push(`盈利质量维度 ${quality}/100，基本面质量有真实数据支撑。`);
-  if (growth !== null && growth >= 60) reasons.push(`成长维度 ${growth}/100，收入、利润或现金流增长表现合格。`);
-  if (valuation !== null && valuation >= 55) reasons.push(`估值维度 ${valuation}/100，当前估值未显示明显过热。`);
-  if (trend !== null && trend >= 55) reasons.push(`趋势维度 ${trend}/100，均线、RSI和52周位置未明显转弱。`);
+  const technical = (input.score?.technical ?? input.score?.data?.technical ?? null) as Record<string, number | null> | null;
+  if (trend !== null && trend >= 55) reasons.push(buildTrendReason(technical, trend));
+  if (quality !== null && quality >= 60) reasons.push(buildDimensionReason(input.score, "quality", `盈利质量维度 ${quality}/100，现金流、利润率或杠杆指标表现较好。`));
+  if (growth !== null && growth >= 60) reasons.push(buildDimensionReason(input.score, "growth", `成长/流动性维度 ${growth}/100，相关真实指标表现合格。`));
+  if (valuation !== null && valuation >= 55) reasons.push(buildDimensionReason(input.score, "valuation", `估值维度 ${valuation}/100，当前估值未显示明显过热。`));
   if (input.currentPrice !== null && isInBuyZone(input.currentPrice, input.plan)) reasons.push("当前价格进入我的计划买入区。");
   if (belowMaxPosition(input.positionWeight, input.plan)) reasons.push("当前仓位低于我的最大计划仓位。");
   if (!input.holding) reasons.push("当前未持有，可作为观察或分批计划候选。");
   return reasons.length ? reasons : ["没有足够支持理由生成买入或加仓结论。"];
 }
 
-function buildRiskReasons(input: { currentPrice: number | null; positionWeight: number | null; plan: TradePlan | null; dimensions: Map<string, NonNullable<AiScoreResult["dimensions"]>[number]>; quote: MarketQuote | null; dataCoverage: number; confidence: Confidence }) {
+function buildRiskReasons(input: { currentPrice: number | null; positionWeight: number | null; plan: TradePlan | null; dimensions: Map<string, NonNullable<AiScoreResult["dimensions"]>[number]>; quote: MarketQuote | null; dataCoverage: number; confidence: Confidence; score: AiScoreResult | null }) {
   const reasons: string[] = [];
   const risk = scoreOf(input.dimensions, "risk");
   const valuation = scoreOf(input.dimensions, "valuation");
@@ -206,7 +246,8 @@ function buildRiskReasons(input: { currentPrice: number | null; positionWeight: 
   if (input.dataCoverage < 0.45) reasons.push("数据覆盖率低于45%，暂不生成正式买卖结论。");
   if (input.currentPrice === null) reasons.push("当前价格不可用。");
   if (input.quote?.source === "stale-cache" || input.quote?.isStale) reasons.push("行情数据可能过期。");
-  if (risk !== null && risk < 45) reasons.push(`风险维度 ${risk}/100，波动率、回撤或流动性风险偏高。`);
+  if (input.score?.assetType === "leveraged_etf" || input.score?.assetType === "inverse_etf") reasons.push("该资产为每日重置杠杆ETF，长期表现可能明显偏离标的累计涨跌。");
+  if (risk !== null && risk < 45) reasons.push(`风险维度 ${risk}/100，波动率、最大回撤或流动性风险偏高。`);
   if (finite(input.plan?.riskControlPrice) && input.currentPrice !== null && input.currentPrice <= input.plan!.riskControlPrice!) reasons.push(`股价已跌破我的风险控制价 ${money(input.plan!.riskControlPrice!)}。`);
   if (finite(input.plan?.maxPositionWeight) && finite(input.positionWeight) && input.positionWeight > input.plan!.maxPositionWeight!) reasons.push(`当前仓位 ${percent(input.positionWeight)} 超过我的最大计划仓位 ${percent(input.plan!.maxPositionWeight!)}。`);
   if (finite(input.plan?.targetPrice1) && input.currentPrice !== null && input.currentPrice >= input.plan!.targetPrice1!) reasons.push(`股价已达到我的第一目标价 ${money(input.plan!.targetPrice1!)}。`);
@@ -230,7 +271,8 @@ function buildSystemReference(score: AiScoreResult | null, currentPrice: number 
     ma50 ? `MA50 ${money(ma50)}` : null,
     ma200 ? `MA200 ${money(ma200)}` : null,
     low52 && high52 ? `52周区间 ${money(low52)} - ${money(high52)}` : null,
-    volatility ? `20日波动率 ${percent(volatility)}` : null
+    volatility ? `20日波动率 ${percent(volatility)}` : null,
+    ...getLeveragedEtfNotes(score?.ticker ?? "", score?.assetType)
   ].filter((item): item is string => Boolean(item));
   return {
     buyZoneLow: support !== null ? roundMoney(support * 0.98) : null,
@@ -244,8 +286,22 @@ function buildSystemReference(score: AiScoreResult | null, currentPrice: number 
   };
 }
 
-function buildSummary(status: StockDecisionStatus, supportingReasons: string[], riskReasons: string[], plan: TradePlan | null, holding: Holding | null) {
+function getLeveragedEtfNotes(symbol: string, assetType?: string) {
+  const meta: Record<string, string> = {
+    TSLL: "杠杆倍数 2x，跟踪标的 TSLA",
+    TQQQ: "杠杆倍数 3x，跟踪标的 NASDAQ-100",
+    SQQQ: "反向杠杆 -3x，跟踪标的 NASDAQ-100",
+    SOXL: "杠杆倍数 3x，跟踪标的半导体指数",
+    SOXS: "反向杠杆 -3x，跟踪标的半导体指数"
+  };
+  if (assetType !== "leveraged_etf" && assetType !== "inverse_etf") return [];
+  return [meta[symbol] ?? "杠杆ETF", "每日重置风险", "波动损耗风险", "通常不适合长期持有"];
+}
+
+function buildSummary(status: StockDecisionStatus, researchJudgment: ResearchJudgment, supportingReasons: string[], riskReasons: string[], plan: TradePlan | null, holding: Holding | null) {
   if (status === "insufficient_data") return "数据不足，暂不生成买卖结论。";
+  if (status === "plan_not_set") return `研究判断：${researchJudgmentLabel(researchJudgment)}。尚未设置完整买卖计划，因此不输出正式行动结论。`;
+  if (status === "trigger_risk_control") return `${riskReasons[0] ?? "价格触发风险控制条件。"} 请优先复核原投资逻辑是否失效。`;
   if (status === "buy_in_batches") return `${supportingReasons[0]} 当前进入我的计划买入区，但仍需按仓位上限分批执行。`;
   if (status === "wait_for_pullback") return "公司或趋势仍有可观察价值，但当前价格高于我的计划买入区，因此等待回调，不建议追高。";
   if (status === "consider_reduce") return `${riskReasons[0] ?? "风险收益比已经变化。"} 建议检查是否按计划减仓。`;
@@ -296,8 +352,76 @@ function statusLabel(status: StockDecisionStatus) {
     hold: "继续持有",
     consider_reduce: "考虑减仓",
     high_risk: "风险较高",
+    trigger_risk_control: "触发风险控制",
+    plan_not_set: "尚未设置计划",
     insufficient_data: "数据不足"
   }[status];
+}
+
+function researchJudgmentLabel(value: ResearchJudgment) {
+  return {
+    positive: "偏积极",
+    neutral_positive: "中性偏积极",
+    neutral: "中性",
+    cautious: "谨慎",
+    high_risk: "风险较高",
+    insufficient_data: "数据不足"
+  }[value];
+}
+
+async function getPortfolioContext(holdings: Holding[], symbol: string, symbolQuote: MarketQuote | null) {
+  const quotes = await Promise.all(holdings.map(async (holding) => {
+    const ticker = holding.ticker.trim().toUpperCase();
+    const quote = ticker === symbol && symbolQuote ? symbolQuote : await getQuote(ticker).catch(() => null);
+    return { holding, quote };
+  }));
+  const valid = quotes.filter((item) => finite(item.quote?.price));
+  return {
+    totalMarketValue: valid.reduce((sum, item) => sum + item.holding.shares * item.quote!.price!, 0),
+    coverage: holdings.length ? valid.length / holdings.length : 0
+  };
+}
+
+function getPlanCompleteness(plan: TradePlan | null) {
+  const total = 7;
+  const completed = [
+    Boolean(finite(plan?.buyZoneLow) && finite(plan?.buyZoneHigh)),
+    finite(plan?.addPrice1),
+    finite(plan?.addPrice2),
+    finite(plan?.riskControlPrice),
+    finite(plan?.targetPrice1),
+    finite(plan?.targetPrice2),
+    finite(plan?.maxPositionWeight)
+  ].filter(Boolean).length;
+  return { completed, total };
+}
+
+function hasCompleteCorePlan(plan: TradePlan | null) {
+  return Boolean(
+    finite(plan?.buyZoneLow) &&
+    finite(plan?.buyZoneHigh) &&
+    finite(plan?.riskControlPrice) &&
+    (finite(plan?.targetPrice1) || finite(plan?.targetPrice2)) &&
+    finite(plan?.maxPositionWeight)
+  );
+}
+
+function buildTrendReason(technical: Record<string, number | null> | null, score: number) {
+  if (!technical) return `趋势维度 ${score}/100，历史K线指标表现可观察。`;
+  const close = numberOrNull(technical.currentClose);
+  const ma50 = numberOrNull(technical.ma50);
+  const ma200 = numberOrNull(technical.ma200);
+  const rsi = numberOrNull(technical.rsi14);
+  if (close !== null && ma200 !== null && close > ma200) return `趋势维度 ${score}/100，当前价格位于MA200上方。`;
+  if (close !== null && ma50 !== null && close < ma50) return `趋势维度 ${score}/100，但当前价格跌破MA50，需要观察趋势修复。`;
+  if (rsi !== null && rsi > 70) return `趋势维度 ${score}/100，RSI ${rsi.toFixed(1)} 偏高，短期可能过热。`;
+  return `趋势维度 ${score}/100，均线、RSI和52周位置未明显转弱。`;
+}
+
+function buildDimensionReason(score: AiScoreResult | null, key: string, fallback: string) {
+  const dimension = score?.dimensions.find((item) => item.key === key);
+  if (!dimension?.metricsUsed.length) return fallback;
+  return `${dimension.label}维度 ${dimension.score}/100，使用指标：${dimension.metricsUsed.slice(0, 3).join("、")}。`;
 }
 
 function isInBuyZone(price: number, plan: TradePlan | null) {

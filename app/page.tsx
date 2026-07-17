@@ -271,6 +271,8 @@ function buildDecisionAttentionItems(decisions: StockDecision[]) {
     const price = decision.currentPrice;
     if (decision.status === "buy_in_batches") {
       items.push({ title: `${decision.symbol} 已进入计划买入区`, detail: decision.supportingReasons[0] ?? decision.summary });
+    } else if (decision.status === "trigger_risk_control") {
+      items.push({ title: `${decision.symbol} 触发风险控制`, detail: decision.riskReasons[0] ?? decision.summary });
     } else if (decision.status === "high_risk") {
       items.push({ title: `${decision.symbol} 触发风险检查`, detail: decision.riskReasons[0] ?? decision.summary });
     } else if (decision.status === "consider_reduce") {
@@ -318,6 +320,8 @@ function decisionStatusLabel(status: StockDecision["status"]) {
     hold: "继续持有",
     consider_reduce: "考虑减仓",
     high_risk: "风险较高",
+    trigger_risk_control: "触发风险控制",
+    plan_not_set: "尚未设置计划",
     insufficient_data: "数据不足"
   }[status];
 }
