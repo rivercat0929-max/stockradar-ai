@@ -11,11 +11,21 @@ export async function GET(request: Request) {
   const access = requirePersonalAccess(request);
   if (!access.ok) return accessErrorResponse(access);
   try {
-    const items = await enrichWatchlistItems(await getWatchlist());
+    const rows = await getWatchlist();
+    const items = await enrichWatchlistItems(rows);
     return Response.json({ success: true, data: items, items, error: null, sync: { status: "synced" } });
   } catch (error) {
-    console.error("GET /api/watchlist failed", sanitizeError(error));
-    return Response.json({ success: false, data: [], items: [], error: "自选股暂时不可用。", sync: { status: "cloud-unavailable" } }, { status: 503 });
+    const safeError = sanitizeError(error);
+    console.error("GET /api/watchlist failed", safeError);
+    return Response.json({
+      success: false,
+      data: [],
+      items: [],
+      error: "自选股云端数据暂时不可用。",
+      errorType: "database_error",
+      errorCode: safeError.code ?? null,
+      sync: { status: "cloud-unavailable" }
+    }, { status: 503 });
   }
 }
 
@@ -63,9 +73,17 @@ export async function DELETE(request: Request) {
 function repositoryErrorResponse(error: unknown, fallback: string) {
   const message = error instanceof RepositoryError ? error.message : fallback;
   const duplicate = error instanceof Error && error.message.includes("409");
-  return Response.json({ success: false, error: duplicate ? "该股票已在自选股中。" : message }, { status: duplicate ? 409 : 500 });
+  const safeError = sanitizeError(error);
+  console.error("POST/PUT/DELETE /api/watchlist failed", safeError);
+  return Response.json({ success: false, error: duplicate ? "该股票已在自选股中。" : message, errorType: duplicate ? "conflict" : "database_error", errorCode: safeError.code ?? null }, { status: duplicate ? 409 : 500 });
 }
 
 function sanitizeError(error: unknown) {
-  return error instanceof Error ? { name: error.name, message: error.message } : { message: String(error) };
+  const cause = error instanceof RepositoryError ? error.cause : null;
+  const code = readErrorCode(cause) ?? readErrorCode(error);
+  return error instanceof Error ? { name: error.name, message: error.message, code } : { message: String(error), code };
+}
+
+function readErrorCode(error: unknown) {
+  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : null;
 }

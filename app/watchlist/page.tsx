@@ -9,7 +9,7 @@ import type { PortfolioAccount } from "@/lib/types";
 import type { TradePlan } from "@/lib/trade-plans";
 import { watchlistGroups, type EnrichedWatchlistItem, type WatchlistGroup, type WatchlistStatus } from "@/lib/watchlist";
 
-type LoadState = "loading" | "loaded-empty" | "loaded-data" | "error";
+type LoadState = "loading" | "loaded-empty" | "loaded-data" | "unauthorized" | "cloud-error-with-backup" | "cloud-error-no-backup";
 type SortMode = "buy_zone_distance" | "research" | "coverage" | "earnings" | "created";
 
 type FormState = {
@@ -119,17 +119,47 @@ export default function WatchlistPage() {
       const watchlistData = await watchlistResponse.json();
       const accountsData = await accountsResponse.json();
       const plansData = await plansResponse?.json().catch(() => null);
-      if (!watchlistResponse.ok) throw new Error(watchlistData.error ?? "自选股加载失败。");
+      if (watchlistResponse.status === 401 || isAccessError(watchlistData)) {
+        setItems([]);
+        setLoadState("unauthorized");
+        setError(watchlistData.error ?? "请先解锁个人数据。");
+        setSyncState("failed");
+        return;
+      }
+      if (!watchlistResponse.ok) {
+        const backup = readLocalWatchlistBackup();
+        if (backup.length) {
+          setItems(backup);
+          setLoadState("cloud-error-with-backup");
+          setError("云端暂时不可用，正在使用本地备份。");
+          setSyncState("local-backup");
+        } else {
+          setItems([]);
+          setLoadState("cloud-error-no-backup");
+          setError("云端暂时不可用，暂无可恢复的本地数据。");
+          setSyncState("cloud-unavailable");
+        }
+        return;
+      }
       const nextItems = readArrayPayload<EnrichedWatchlistItem>(watchlistData, "items");
       setItems(nextItems);
+      if (nextItems.length) writeLocalWatchlistBackup(nextItems);
       setAccounts(Array.isArray(accountsData) ? accountsData : []);
       setPlans(Object.fromEntries(readArrayPayload<TradePlan>(plansData).map((plan) => [plan.symbol, plan])));
       setLoadState(nextItems.length ? "loaded-data" : "loaded-empty");
       setSyncState("synced");
     } catch (loadError) {
+      const backup = readLocalWatchlistBackup();
+      if (backup.length) {
+        setItems(backup);
+        setLoadState("cloud-error-with-backup");
+        setError("云端暂时不可用，正在使用本地备份。");
+        setSyncState("local-backup");
+        return;
+      }
       setItems([]);
       setError(loadError instanceof Error ? loadError.message : "自选股加载失败。");
-      setLoadState("error");
+      setLoadState("cloud-error-no-backup");
       setSyncState("cloud-unavailable");
     }
   }
@@ -278,7 +308,7 @@ export default function WatchlistPage() {
       />
 
       <LocalStorageMigrationCard />
-      <DataSyncStatus state={syncState} detail={syncState === "cloud-unavailable" ? "云端暂时不可用，本地备份不会被清空" : null} />
+      <DataSyncStatus state={syncState} detail={syncState === "local-backup" ? "正在使用浏览器本地备份，只读显示" : syncState === "cloud-unavailable" ? "云端暂时不可用，暂无可恢复的本地数据" : null} />
       {error ? <p className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-800">{error}</p> : null}
       {message ? <p className="rounded-lg border border-green-200 bg-green-50 p-4 text-sm text-green-700">{message}</p> : null}
 
@@ -328,14 +358,17 @@ export default function WatchlistPage() {
         </div>
 
         {loadState === "loading" ? <p className="rounded-md border border-line bg-panel p-4 text-sm text-muted">正在加载自选股...</p> : null}
+        {loadState === "unauthorized" ? <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-10 text-center text-sm text-amber-800">请先在设置页解锁个人数据。</p> : null}
+        {loadState === "cloud-error-no-backup" ? <p className="rounded-md border border-red-200 bg-red-50 px-3 py-10 text-center text-sm text-red-700">云端暂时不可用，暂无可恢复的本地数据。</p> : null}
         {loadState === "loaded-empty" ? <p className="rounded-md border border-line bg-panel px-3 py-10 text-center text-sm text-muted">暂无自选股。</p> : null}
-        {loadState === "loaded-data" ? <div className="grid gap-4 xl:grid-cols-2">{filteredItems.map((item) => <WatchlistCard key={item.id} item={item} onEdit={editItem} onDelete={deleteItem} onAddToHoldings={addToHoldings} />)}</div> : null}
+        {loadState === "cloud-error-with-backup" ? <p className="mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">云端暂时不可用，以下为浏览器本地备份，只读显示。</p> : null}
+        {loadState === "loaded-data" || loadState === "cloud-error-with-backup" ? <div className="grid gap-4 xl:grid-cols-2">{filteredItems.map((item) => <WatchlistCard key={item.id} item={item} onEdit={editItem} onDelete={deleteItem} onAddToHoldings={addToHoldings} readOnly={loadState === "cloud-error-with-backup"} />)}</div> : null}
       </section>
     </div>
   );
 }
 
-function WatchlistCard({ item, onEdit, onDelete, onAddToHoldings }: { item: EnrichedWatchlistItem; onEdit: (item: EnrichedWatchlistItem) => void; onDelete: (item: EnrichedWatchlistItem) => void; onAddToHoldings: (item: EnrichedWatchlistItem) => void }) {
+function WatchlistCard({ item, onEdit, onDelete, onAddToHoldings, readOnly = false }: { item: EnrichedWatchlistItem; onEdit: (item: EnrichedWatchlistItem) => void; onDelete: (item: EnrichedWatchlistItem) => void; onAddToHoldings: (item: EnrichedWatchlistItem) => void; readOnly?: boolean }) {
   return (
     <article className="rounded-lg border border-line bg-panel p-4">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -364,11 +397,13 @@ function WatchlistCard({ item, onEdit, onDelete, onAddToHoldings }: { item: Enri
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
         <DataSourceBadge quote={item.decision.quote} />
         <p className="text-xs text-muted">更新 {item.dataUpdatedAt ? formatDateTime(item.dataUpdatedAt) : "--"}</p>
-        <div className="flex flex-wrap gap-3 text-sm font-semibold">
-          <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-500">编辑计划</button>
-          <button onClick={() => onAddToHoldings(item)} className="text-green-700 hover:text-green-600">加入持仓</button>
-          <button onClick={() => onDelete(item)} className="text-red-600 hover:text-red-500">停止关注</button>
-        </div>
+        {readOnly ? <p className="text-xs text-muted">本地备份只读，保存需等待云端恢复。</p> : (
+          <div className="flex flex-wrap gap-3 text-sm font-semibold">
+            <button onClick={() => onEdit(item)} className="text-blue-600 hover:text-blue-500">编辑计划</button>
+            <button onClick={() => onAddToHoldings(item)} className="text-green-700 hover:text-green-600">加入持仓</button>
+            <button onClick={() => onDelete(item)} className="text-red-600 hover:text-red-500">停止关注</button>
+          </div>
+        )}
       </div>
     </article>
   );
@@ -464,4 +499,137 @@ function readObjectPayload<T>(payload: unknown): T | null {
     if (record.item && typeof record.item === "object") return record.item as T;
   }
   return null;
+}
+
+function isAccessError(payload: unknown) {
+  if (!payload || typeof payload !== "object") return false;
+  const error = (payload as { error?: unknown }).error;
+  return typeof error === "string" && (error.includes("解锁") || error.includes("访问密码"));
+}
+
+const localWatchlistKeys = ["stockradar_watchlist", "stockradar-watchlist", "watchlist"];
+
+function readLocalWatchlistBackup(): EnrichedWatchlistItem[] {
+  if (typeof window === "undefined") return [];
+  for (const key of localWatchlistKeys) {
+    const parsed = safeJson(window.localStorage.getItem(key));
+    if (Array.isArray(parsed) && parsed.length) return parsed.map((item, index) => toBackupItem(item, key, index));
+  }
+  return [];
+}
+
+function writeLocalWatchlistBackup(items: EnrichedWatchlistItem[]) {
+  if (typeof window === "undefined" || !items.length) return;
+  const payload = items.map((item) => ({
+    ticker: item.ticker,
+    companyName: item.companyName,
+    market: item.market,
+    group: item.group,
+    targetBuyPrice: item.buyZoneHigh ?? item.targetBuyPrice ?? null,
+    targetSellPrice: item.targetSellPrice ?? null,
+    watchReason: item.watchReason ?? null,
+    notes: item.notes ?? null,
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt
+  }));
+  window.localStorage.setItem("stockradar_watchlist", JSON.stringify(payload));
+}
+
+function safeJson(value: string | null) {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+}
+
+function toBackupItem(value: unknown, key: string, index: number): EnrichedWatchlistItem {
+  const row = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const ticker = text(row.ticker) ?? text(row.symbol) ?? "UNKNOWN";
+  const companyName = text(row.companyName) ?? ticker;
+  const targetBuyPrice = numberOrNull(row.targetBuyPrice ?? row.buyZoneHigh ?? row.buyZoneLow);
+  const targetSellPrice = numberOrNull(row.targetSellPrice);
+  const createdAt = text(row.createdAt) ?? new Date(0).toISOString();
+  return {
+    id: text(row.id) ?? `local-${key}-${index}`,
+    userId: text(row.userId) ?? "local-backup",
+    ticker,
+    companyName,
+    market: text(row.market) ?? "US",
+    status: text(row.status) ?? "观察",
+    group: parseBackupGroup(row.group),
+    targetBuyPrice,
+    targetSellPrice,
+    watchReason: text(row.watchReason) ?? text(row.attentionReason),
+    notes: text(row.notes),
+    createdAt,
+    updatedAt: text(row.updatedAt) ?? createdAt,
+    watchlistStatus: "insufficient_data",
+    currentPrice: null,
+    changePercent: null,
+    researchJudgment: "insufficient_data",
+    actionStatus: "insufficient_data",
+    dataCoverage: 0,
+    confidence: "insufficient",
+    recentEarningsDate: null,
+    buyZoneLow: numberOrNull(row.buyZoneLow) ?? targetBuyPrice,
+    buyZoneHigh: numberOrNull(row.buyZoneHigh) ?? targetBuyPrice,
+    firstWatchPrice: numberOrNull(row.addPrice1 ?? row.firstWatchPrice),
+    riskReferencePrice: numberOrNull(row.riskControlPrice ?? row.riskReferencePrice),
+    maxPositionWeight: numberOrNull(row.maxPositionWeight),
+    distanceToBuyZonePercent: null,
+    distanceToBuyZoneLabel: null,
+    isNearBuyZone: false,
+    supportingReasons: [text(row.watchReason) ?? "来自本地备份，等待云端恢复后重新分析。"],
+    riskReasons: ["云端暂时不可用，无法刷新真实行情和决策。"],
+    dataUpdatedAt: null,
+    dataSourceLabel: "本地备份",
+    rawMarketDataSource: null,
+    decision: backupDecision(ticker)
+  };
+}
+
+function backupDecision(symbol: string): EnrichedWatchlistItem["decision"] {
+  return {
+    symbol,
+    status: "insufficient_data",
+    actionStatus: "insufficient_data",
+    researchJudgment: "insufficient_data",
+    headline: "本地备份",
+    summary: "云端暂时不可用，正在显示本地备份。",
+    currentPrice: null,
+    averageCost: null,
+    returnPercent: null,
+    positionWeight: null,
+    positionWeightCoverage: 0,
+    supportingReasons: ["来自本地备份。"],
+    riskReasons: ["云端暂时不可用，无法刷新真实数据。"],
+    plan: { buyZoneLow: null, buyZoneHigh: null, addPrice1: null, addPrice2: null, riskControlPrice: null, targetPrice1: null, targetPrice2: null, maxPositionWeight: null },
+    thesis: null,
+    invalidationConditions: [],
+    dataCoverage: 0,
+    confidence: "insufficient",
+    dataUpdatedAt: null,
+    warnings: ["本地备份只读"],
+    planCompleteness: { completed: 0, total: 7 },
+    systemReference: { buyZoneLow: null, buyZoneHigh: null, supportPrice: null, resistancePrice: null, riskControlPrice: null, targetPrice1: null, targetPrice2: null, notes: [] },
+    events: [],
+    assetType: "unknown",
+    quote: null
+  };
+}
+
+function parseBackupGroup(value: unknown): WatchlistGroup {
+  return typeof value === "string" && (watchlistGroups as readonly string[]).includes(value) ? value as WatchlistGroup : "重点观察";
+}
+
+function text(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function numberOrNull(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const number = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(number) ? number : null;
 }
